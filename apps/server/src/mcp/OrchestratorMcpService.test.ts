@@ -1337,7 +1337,7 @@ describe("OrchestratorMcpService provider resolution", () => {
       client: {
         sessionId: "scheduled",
         label: "Claude Code",
-        runtimeModeCeiling: "approval-required",
+        access: "approval-required",
       },
       capabilities: new Set(["orchestration"]),
       issuedAt: 1,
@@ -1390,6 +1390,25 @@ describe("OrchestratorMcpService provider resolution", () => {
           listed.tasks.map((summary) => summary.webhookUrl),
           [undefined, "https://t3.example/hooks/secret"],
         );
+      }),
+    );
+
+    it.effect("never shows a read-only client a webhook URL", () =>
+      Effect.gen(function* () {
+        const upserted = yield* Ref.make(0);
+        const listed = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+          Effect.flatMap((mcp) =>
+            mcp.listScheduledTasks(
+              {
+                ...supervisedClient,
+                client: { sessionId: "scheduled", label: "Claude Code", access: "read-only" },
+              },
+              { projectId },
+            ),
+          ),
+          Effect.provide(service([task({})], null, upserted)),
+        );
+        assert.equal(listed.tasks[0]?.webhookUrl, undefined);
       }),
     );
 

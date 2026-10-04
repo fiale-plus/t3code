@@ -79,6 +79,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import {
+  clientRuntimeModeCeiling,
   type McpInvocationScope,
   type McpThreadInvocationScope,
   requireThreadScope,
@@ -903,7 +904,7 @@ const make = Effect.gen(function* () {
         return {
           parent: undefined,
           limits: {
-            runtimeMode: scope.client?.runtimeModeCeiling ?? "approval-required",
+            runtimeMode: clientRuntimeModeCeiling(scope.client),
             interactionMode: "default",
           } satisfies { runtimeMode: RuntimeMode; interactionMode: ProviderInteractionMode },
         } as const;
@@ -1398,7 +1399,12 @@ const make = Effect.gen(function* () {
     runtimeModeRank(modes.runtimeMode) <= runtimeModeRank(limits.runtimeMode) &&
     interactionModeRank(modes.interactionMode) <= interactionModeRank(limits.interactionMode);
 
+  /**
+   * A task as `scope` may see it. Its webhook URL starts runs, so a client
+   * approved for read-only access never sees one.
+   */
   const summarizeScheduledTask = (
+    scope: McpInvocationScope,
     task: ScheduledTask,
     limits: {
       readonly runtimeMode: RuntimeMode;
@@ -1409,7 +1415,7 @@ const make = Effect.gen(function* () {
       Effect.map((modes) =>
         scheduledTaskSummary(
           task,
-          modes.every((mode) => withinLimits(limits, mode)),
+          scope.client?.access !== "read-only" && modes.every((mode) => withinLimits(limits, mode)),
         ),
       ),
     );
@@ -1499,7 +1505,7 @@ const make = Effect.gen(function* () {
               failure("orchestration_error", `Could not schedule task: ${error.message}`),
             ),
           );
-        return yield* summarizeScheduledTask(task, limits);
+        return yield* summarizeScheduledTask(scope, task, limits);
       }),
     listScheduledTasks: (scope, input) =>
       Effect.gen(function* () {
@@ -1515,7 +1521,7 @@ const make = Effect.gen(function* () {
         return {
           tasks: yield* Effect.forEach(
             tasks.filter((task) => projectId === undefined || task.projectId === projectId),
-            (task) => summarizeScheduledTask(task, limits),
+            (task) => summarizeScheduledTask(scope, task, limits),
           ),
         };
       }),
@@ -1570,7 +1576,7 @@ const make = Effect.gen(function* () {
               failure("orchestration_error", `Could not update scheduled task: ${error.message}`),
             ),
           );
-        return yield* summarizeScheduledTask(task, limits);
+        return yield* summarizeScheduledTask(scope, task, limits);
       }),
     deleteScheduledTask: (scope, input) =>
       Effect.gen(function* () {
