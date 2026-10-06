@@ -3,8 +3,8 @@ import { PanelsTopLeftIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { useSidebarMode, useUpdateClientSettings } from "~/hooks/useSettings";
-import { cn } from "~/lib/utils";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 
 const MODES: ReadonlyArray<{ value: SidebarMode; label: string }> = [
   { value: "default", label: "Default" },
@@ -16,7 +16,6 @@ export function SidebarModeSelector() {
   const mode = useSidebarMode();
   const updateSettings = useUpdateClientSettings();
   const [open, setOpen] = useState(false);
-  const choicesRef = useRef<HTMLDivElement>(null);
   const pinnedOpen = useRef(false);
   return (
     <Popover
@@ -47,45 +46,24 @@ export function SidebarModeSelector() {
         <PanelsTopLeftIcon aria-hidden className="size-3.5" />
       </PopoverTrigger>
       <PopoverPopup aria-label="Choose sidebar mode" align="end" padding="none">
-        <div
-          ref={choicesRef}
-          role="radiogroup"
-          aria-label="Sidebar mode"
-          className="flex w-60 gap-1 p-1"
-          onKeyDown={(event) => {
-            if (!["ArrowLeft", "ArrowRight", "ArrowDown", "ArrowUp"].includes(event.key)) return;
-            event.preventDefault();
-            const choices =
-              choicesRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
-            if (!choices?.length) return;
-            const index = Array.from(choices).findIndex(
-              (choice) => choice === document.activeElement,
-            );
-            const backwards = event.key === "ArrowLeft" || event.key === "ArrowUp";
-            choices[(index + (backwards ? -1 : 1) + choices.length) % choices.length]?.focus();
-          }}
-        >
-          {MODES.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="radio"
-              aria-checked={mode === option.value}
-              className={cn(
-                "flex-1 rounded-md px-2 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                mode === option.value
-                  ? "bg-accent font-medium text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent",
-              )}
-              onClick={() => {
-                updateSettings({ sidebarMode: option.value });
-                pinnedOpen.current = false;
-                setOpen(false);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="w-60 p-1">
+          <ToggleGroup
+            aria-label="Sidebar mode"
+            className="w-full *:flex-1"
+            value={[mode]}
+            onValueChange={(next) => {
+              const choice = MODES.find((option) => option.value === next[0]);
+              if (choice) updateSettings({ sidebarMode: choice.value });
+              pinnedOpen.current = false;
+              setOpen(false);
+            }}
+          >
+            {MODES.map((option) => (
+              <Toggle key={option.value} value={option.value}>
+                {option.label}
+              </Toggle>
+            ))}
+          </ToggleGroup>
         </div>
       </PopoverPopup>
     </Popover>

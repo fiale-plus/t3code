@@ -32,6 +32,9 @@ describe("cliRelease", () => {
   });
 
   it("resolves download URLs under the tagged release, honoring a mirror", () => {
+    expect(cliReleaseDownloadBaseUrl("1.2.3")).toBe(
+      "https://github.com/fiale-plus/t3code/releases/download/v1.2.3",
+    );
     expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/t3/")).toBe(
       "https://mirror.example/t3/v1.2.3",
     );
@@ -85,6 +88,9 @@ describe("cliRelease", () => {
   it("pages through the release index at the largest page GitHub allows", () => {
     const first = new URL(cliReleaseIndexPageUrl(1));
     const third = new URL(cliReleaseIndexPageUrl(3));
+    expect(first.origin + first.pathname).toBe(
+      "https://api.github.com/repos/fiale-plus/t3code/releases",
+    );
     expect(first.searchParams.get("per_page")).toBe("100");
     expect(first.searchParams.get("page")).toBe("1");
     expect(third.searchParams.get("page")).toBe("3");

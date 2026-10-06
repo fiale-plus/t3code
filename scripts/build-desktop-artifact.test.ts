@@ -328,6 +328,48 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+  it.effect("keeps mock and preview builds off the fork update feed", () =>
+    Effect.gen(function* () {
+      const release = yield* createBuildConfig(
+        "linux",
+        "AppImage",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const mock = yield* createBuildConfig(
+        "linux",
+        "AppImage",
+        "1.2.3",
+        false,
+        true,
+        4567,
+        undefined,
+      );
+      const preview = yield* createBuildConfig(
+        "linux",
+        "AppImage",
+        "1.2.3-preview.20261006.1",
+        false,
+        true,
+        4567,
+        undefined,
+      );
+      assert.deepStrictEqual(release.publish, [
+        {
+          provider: "github",
+          owner: "fiale-plus",
+          repo: "t3code",
+          releaseType: "release",
+        },
+      ]);
+      assert.deepStrictEqual(mock.publish, [{ provider: "generic", url: "http://localhost:4567" }]);
+      assert.notProperty(preview, "publish");
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it.effect("omits update feeds for pull request preview builds", () =>
     Effect.gen(function* () {
       const preview = yield* createBuildConfig(

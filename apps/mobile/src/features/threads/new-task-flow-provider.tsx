@@ -895,7 +895,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           mode,
           branch: mode === "local" ? localSelection.branch : selectedBranchName,
           worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
-          executionWorkspaceRoot: selectedProjectDraft.workspaceSelection?.executionWorkspaceRoot,
+          executionWorkspaceRoot,
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
         },
       });
@@ -903,6 +903,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     [
       availableBranches,
       draftStartFromOrigin,
+      executionWorkspaceRoot,
       selectedBranchName,
       selectedProject,
       selectedProjectDraftKey,
@@ -933,13 +934,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         mode: "local",
         branch: localSelection.branch,
         worktreePath: localSelection.worktreePath,
-        executionWorkspaceRoot: selectedProjectDraft.workspaceSelection?.executionWorkspaceRoot,
+        executionWorkspaceRoot,
         ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
       },
     });
   }, [
     availableBranches,
     draftStartFromOrigin,
+    executionWorkspaceRoot,
     selectedProject,
     selectedProjectDraftKey,
     workspaceMode,
@@ -960,12 +962,18 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
             projectCwd: executionWorkspaceRoot ?? selectedProject.workspaceRoot,
             branchWorktreePath: branch.worktreePath,
           }),
-          executionWorkspaceRoot: selectedProjectDraft.workspaceSelection?.executionWorkspaceRoot,
+          executionWorkspaceRoot,
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
         },
       });
     },
-    [draftStartFromOrigin, selectedProject, selectedProjectDraftKey, workspaceMode],
+    [
+      draftStartFromOrigin,
+      executionWorkspaceRoot,
+      selectedProject,
+      selectedProjectDraftKey,
+      workspaceMode,
+    ],
   );
 
   const setStartFromOrigin = useCallback(
@@ -978,12 +986,18 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           mode: workspaceMode,
           branch: selectedBranchName,
           worktreePath: selectedWorktreePath,
-          executionWorkspaceRoot: selectedProjectDraft.workspaceSelection?.executionWorkspaceRoot,
+          executionWorkspaceRoot,
           startFromOrigin: value,
         },
       });
     },
-    [selectedBranchName, selectedProjectDraftKey, selectedWorktreePath, workspaceMode],
+    [
+      executionWorkspaceRoot,
+      selectedBranchName,
+      selectedProjectDraftKey,
+      selectedWorktreePath,
+      workspaceMode,
+    ],
   );
 
   const refreshBranches = branchState.refresh;

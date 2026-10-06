@@ -10,7 +10,7 @@ import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { useThreadShell } from "../../state/entities";
+import { useAtomValue } from "@effect/atom-react";
 import { ThreadProjectPicker } from "./ThreadProjectPicker";
 import type { ProjectId } from "@t3tools/contracts";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
@@ -203,7 +203,11 @@ import { useThreadSelection } from "../../state/use-thread-selection";
 import { composerDocumentAttachmentRecord } from "../../lib/composerContext";
 import * as Option from "effect/Option";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { environmentThreadShells, threadEnvironment } from "../../state/threads";
+import {
+  environmentThreadDetails,
+  environmentThreadShells,
+  threadEnvironment,
+} from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useV2ItemSupport } from "../../state/v2-item-support";
 import {
@@ -330,8 +334,11 @@ function AssistantForkButton(props: {
   const navigation = useNavigation();
   const [busy, setBusy] = useState(false);
   const [choosingProject, setChoosingProject] = useState(false);
-  const sourceThread = useThreadShell(
-    scopeThreadRef(props.environmentId, props.projectedItem.sourceThreadId),
+  const sourceThread = useAtomValue(
+    environmentThreadDetails.threadAtom(
+      scopeThreadRef(props.environmentId, props.projectedItem.sourceThreadId),
+    ),
+    (source) => source?.projection.thread ?? null,
   );
   const canFork = canForkProjectedAssistantItem({
     projectedItem: props.projectedItem,

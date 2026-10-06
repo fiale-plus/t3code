@@ -1094,6 +1094,54 @@ it.effect("falls back when the source control writer is unavailable", () =>
   }),
 );
 
+it.effect.each([false, true])(
+  "keeps a reused thread's pinned root when launching in Scratch (client supplies root: %s)",
+  (supplyRoot) =>
+    Effect.gen(function* () {
+      const setupEntered = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          managedProjectsRoot: "/projects",
+          folderForThread: () => Effect.succeed(Option.some("/scratch/new-folder")),
+        }),
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(Effect.andThen(Effect.never)),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const input = launchInput({
+          command: "command:launch:relocated-scratch",
+          thread: "thread:launch:relocated-scratch",
+        });
+        yield* threads.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("command:launch:relocated-scratch:create"),
+          threadId: input.threadId,
+          projectId,
+          title: input.title,
+          modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          branch: null,
+          worktreePath: null,
+          executionWorkspaceRoot: "/source-repository",
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* launches.launch({
+          ...input,
+          reuseExistingThread: true,
+          ...(supplyRoot ? { executionWorkspaceRoot: "/source-repository" } : {}),
+        });
+        yield* Deferred.await(setupEntered);
+        const projection = yield* threads.getThreadProjection(input.threadId);
+        assert.equal(projection.thread.executionWorkspaceRoot, "/source-repository");
+        assert.isNull(projection.thread.worktreePath);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
 it.effect("runs a Scratch thread launched at the root in its own folder", () =>
   Effect.gen(function* () {
     // Only `projectId` stands in for the Scratch project here.

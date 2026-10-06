@@ -2736,7 +2736,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (command.type === "thread.project.move") {
       const targetProject = yield* projects
         .get(command.targetProjectId)
-        .pipe(Effect.mapError(mapDispatchError(command)));
+        .pipe(mapDispatchError(command));
       if (Option.isNone(targetProject) || targetProject.value.deletedAt !== null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
@@ -2745,9 +2745,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
       if (executionWorkspaceRoot === undefined) {
-        const sourceProject = yield* projects
-          .get(thread.projectId)
-          .pipe(Effect.mapError(mapDispatchError(command)));
+        const sourceProject = yield* projects.get(thread.projectId).pipe(mapDispatchError(command));
         if (Option.isNone(sourceProject)) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
@@ -3508,7 +3506,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (command.targetProjectId !== undefined) {
       const targetProject = yield* projects
         .get(command.targetProjectId)
-        .pipe(Effect.mapError(mapDispatchError(command)));
+        .pipe(mapDispatchError(command));
       if (Option.isNone(targetProject) || targetProject.value.deletedAt !== null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
@@ -3519,7 +3517,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     const sourceProject = yield* projects
       .get(sourceProjection.thread.projectId)
-      .pipe(Effect.mapError(mapDispatchError(command)));
+      .pipe(mapDispatchError(command));
     const sourceWorkspaceRoot =
       sourceProjection.thread.executionWorkspaceRoot ??
       Option.getOrUndefined(sourceProject)?.workspaceRoot;

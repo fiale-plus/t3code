@@ -230,6 +230,7 @@ const make = Effect.gen(function* () {
         threadId,
       )("Only an empty active thread in the target project can change workspace during launch.");
     }
+    return projection.thread.executionWorkspaceRoot;
   });
 
   const prepareInBackground = Effect.fn("ThreadLaunchService.prepareInBackground")(function* (
@@ -747,14 +748,17 @@ const make = Effect.gen(function* () {
           }
         }
 
-        if (input.reuseExistingThread === true && Option.isNone(launchReceipt)) {
-          yield* validateReusableThread(input, candidateThreadId);
-        }
+        const executionWorkspaceRoot =
+          input.reuseExistingThread === true && Option.isNone(launchReceipt)
+            ? yield* validateReusableThread(input, candidateThreadId)
+            : input.executionWorkspaceRoot;
 
-        // A Scratch thread launched at the project root runs in a folder of its
-        // own. Only the first attempt claims one; a retry replays its create.
+        // Only unpinned root launches in Scratch claim a new folder; relocating
+        // a thread must not replace its original execution workspace.
         const workspaceStrategy: ThreadLaunchWorkspaceStrategy =
-          input.workspaceStrategy.type === "root" && Option.isNone(launchReceipt)
+          input.workspaceStrategy.type === "root" &&
+          executionWorkspaceRoot === undefined &&
+          Option.isNone(launchReceipt)
             ? Option.match(
                 yield* managedFolders
                   .folderForThread({

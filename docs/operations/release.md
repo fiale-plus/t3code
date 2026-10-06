@@ -357,11 +357,8 @@ One-time Vercel dashboard setup:
 ## Nightly builds
 
 - Workflow: `.github/workflows/release.yml`
-- Triggers:
-  - scheduled check every 30 minutes
-  - manual `workflow_dispatch` with `channel=nightly`
-- Automatic nightlies require new commits and at least six hours since the last nightly was published, including manual nightlies.
-- Manual nightlies bypass the time and change checks. Nightly runs remain serialized. Scheduled runs wait for an active nightly to finish, then check the publication gap before building.
+- Trigger: manual `workflow_dispatch` with `channel=nightly`.
+- Nightly runs remain serialized; no scheduled checks or automatic tracking run.
 - Runs the same desktop quality gates and artifact matrix as the tagged release flow.
 - Publishes a GitHub prerelease only:
   - current tag format: `vX.Y.Z-nightly.YYYYMMDD.<run_number>`
@@ -591,12 +588,10 @@ Checklist:
 
 ## 4) Ongoing release checklist
 
-1. Pick the latest nightly and verify it: run the smoke test above against its artifacts and
-   check the nightly channel for regressions.
-2. Dispatch the Release workflow with `channel=stable`. Leave `version` empty unless the version
-   should differ from the one the nightly previewed.
-3. Confirm the `Resolve release commit` notice names the nightly tag and commit you verified. If a
-   newer nightly published in between, the run builds that one instead.
+1. Select the exact fork revision to release and verify it with the smoke checks above.
+2. Dispatch the Release workflow on that revision with `channel=stable` and an explicit
+   `version`, or push a `vX.Y.Z` tag pointing to the verified commit.
+3. Confirm the resolved release SHA is the commit you verified.
 4. Verify workflow steps:
    - preflight passes
    - release quality checks pass
