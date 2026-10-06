@@ -185,6 +185,7 @@ export function NewTaskDraftScreen(props: {
     readonly projectId?: string;
     readonly branch?: string | null;
     readonly worktreePath?: string | null;
+    readonly executionWorkspaceRoot?: string;
     /** The project was just added by a clone that is still running. */
     readonly cloning?: boolean;
   };
@@ -471,8 +472,10 @@ export function NewTaskDraftScreen(props: {
     );
   const composerWorkspaceCwd =
     (flow.workspaceMode === "worktree"
-      ? selectedProject?.workspaceRoot
-      : (flow.selectedWorktreePath ?? selectedProject?.workspaceRoot)) || null;
+      ? (flow.executionWorkspaceRoot ?? selectedProject?.workspaceRoot)
+      : (flow.selectedWorktreePath ??
+        flow.executionWorkspaceRoot ??
+        selectedProject?.workspaceRoot)) || null;
   // Media needs its thumbnail; every other file already reads as its inline chip.
   const stripAttachments = useMemo(
     () => composerStripAttachments(flow.attachments),
@@ -701,6 +704,7 @@ export function NewTaskDraftScreen(props: {
               mode: "local",
               branch: props.initialProjectRef.branch,
               worktreePath: props.initialProjectRef.worktreePath ?? null,
+              executionWorkspaceRoot: props.initialProjectRef.executionWorkspaceRoot,
               startFromOrigin: false,
             },
           });

@@ -106,11 +106,28 @@ function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2Thr
   };
 }
 
-const planFork = (sourceRun: OrchestrationV2Run) =>
+const planFork = (
+  sourceRun: OrchestrationV2Run,
+  options: {
+    readonly targetProjectId?: ProjectId;
+    readonly executionWorkspaceRoot?: string;
+    readonly worktreePath?: string | null;
+  } = {},
+) =>
   Effect.gen(function* () {
     const service = yield* ThreadForkService.ThreadForkServiceV2;
     return yield* service.plan({
-      sourceProjection: makeSourceProjection(sourceRun),
+      sourceProjection: {
+        ...makeSourceProjection(sourceRun),
+        thread: {
+          ...makeSourceThread(),
+          ...(options.executionWorkspaceRoot === undefined
+            ? {}
+            : { executionWorkspaceRoot: options.executionWorkspaceRoot }),
+          ...(options.worktreePath === undefined ? {} : { worktreePath: options.worktreePath }),
+        },
+      },
+      sourceWorkspaceRoot: "/tmp/source",
       sourceRun,
       sourceProviderThread: undefined,
       canonicalSourcePoint: {
@@ -119,6 +136,9 @@ const planFork = (sourceRun: OrchestrationV2Run) =>
       },
       transferId: ContextTransferId.make("context-transfer:fork-snoozed-source"),
       targetThreadId,
+      ...(options.targetProjectId === undefined
+        ? {}
+        : { targetProjectId: options.targetProjectId }),
       title: "Awake fork",
       createdBy: "user",
       creationSource: "mobile",
@@ -190,4 +210,28 @@ it.effect("rejects in-progress and rolled-back fork sources", () =>
       assert.equal(error.cause, ThreadForkService.forkableSourceRunStatusError(sourceRun));
     }
   }),
+);
+
+it.effect(
+  "forks into another project without replacing the inherited checkout or repository root",
+  () =>
+    Effect.gen(function* () {
+      const targetProjectId = ProjectId.make("project:destination");
+      for (const worktreePath of [null, "/tmp/source-worktree"]) {
+        for (const executionWorkspaceRoot of [undefined, "/tmp/original-source"]) {
+          const result = yield* planFork(makeSourceRun("completed"), {
+            targetProjectId,
+            worktreePath,
+            ...(executionWorkspaceRoot === undefined ? {} : { executionWorkspaceRoot }),
+          });
+          assert.equal(result.targetThread.projectId, targetProjectId);
+          assert.equal(result.targetThread.worktreePath, worktreePath);
+          assert.equal(
+            result.targetThread.executionWorkspaceRoot,
+            executionWorkspaceRoot ?? "/tmp/source",
+          );
+          assert.equal(result.transfer.sourceThreadId, sourceThreadId);
+        }
+      }
+    }),
 );

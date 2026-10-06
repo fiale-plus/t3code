@@ -77,6 +77,7 @@ export interface ThreadLaunchInput {
   readonly threadId?: ThreadId;
   readonly reuseExistingThread?: boolean;
   readonly projectId: ProjectId;
+  readonly executionWorkspaceRoot?: string;
   readonly title: string;
   readonly generateTitle?: boolean;
   readonly modelSelection: ModelSelection;
@@ -99,7 +100,7 @@ export interface ThreadLaunchInput {
 /** What workspace preparation reads from a launch; a retry rebuilds it from the run. */
 type PreparationInput = Pick<
   ThreadLaunchInput,
-  "commandId" | "projectId" | "workspaceStrategy" | "initialMessage"
+  "commandId" | "projectId" | "executionWorkspaceRoot" | "workspaceStrategy" | "initialMessage"
 > & {
   /**
    * Set when a retry reuses the worktree its failed attempt created and
@@ -214,6 +215,8 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
     if (
       projection.thread.projectId !== input.projectId ||
+      (input.executionWorkspaceRoot !== undefined &&
+        input.executionWorkspaceRoot !== projection.thread.executionWorkspaceRoot) ||
       projection.thread.archivedAt !== null ||
       projection.thread.deletedAt !== null ||
       (yield* threads
@@ -227,6 +230,7 @@ const make = Effect.gen(function* () {
         threadId,
       )("Only an empty active thread in the target project can change workspace during launch.");
     }
+    return projection.thread.executionWorkspaceRoot;
   });
 
   const prepareInBackground = Effect.fn("ThreadLaunchService.prepareInBackground")(function* (
@@ -240,7 +244,12 @@ const make = Effect.gen(function* () {
         Option.match({
           onNone: () =>
             Effect.fail(mapError(input, "resolve-project", threadId)("Project no longer exists.")),
-          onSome: Effect.succeed,
+          onSome: (project) =>
+            Effect.succeed(
+              input.executionWorkspaceRoot === undefined
+                ? project
+                : { ...project, workspaceRoot: input.executionWorkspaceRoot },
+            ),
         }),
       ),
     );
@@ -739,14 +748,17 @@ const make = Effect.gen(function* () {
           }
         }
 
-        if (input.reuseExistingThread === true && Option.isNone(launchReceipt)) {
-          yield* validateReusableThread(input, candidateThreadId);
-        }
+        const executionWorkspaceRoot =
+          input.reuseExistingThread === true && Option.isNone(launchReceipt)
+            ? yield* validateReusableThread(input, candidateThreadId)
+            : input.executionWorkspaceRoot;
 
-        // A Scratch thread launched at the project root runs in a folder of its
-        // own. Only the first attempt claims one; a retry replays its create.
+        // Only unpinned root launches in Scratch claim a new folder; relocating
+        // a thread must not replace its original execution workspace.
         const workspaceStrategy: ThreadLaunchWorkspaceStrategy =
-          input.workspaceStrategy.type === "root" && Option.isNone(launchReceipt)
+          input.workspaceStrategy.type === "root" &&
+          executionWorkspaceRoot === undefined &&
+          Option.isNone(launchReceipt)
             ? Option.match(
                 yield* managedFolders
                   .folderForThread({
@@ -783,6 +795,9 @@ const make = Effect.gen(function* () {
                 interactionMode: input.interactionMode,
                 branch: initialBranch,
                 worktreePath: initialWorktreePath,
+                ...(input.executionWorkspaceRoot === undefined
+                  ? {}
+                  : { executionWorkspaceRoot: input.executionWorkspaceRoot }),
                 ...(input.importedNativeThread === undefined
                   ? {}
                   : { importedNativeThread: input.importedNativeThread }),
@@ -886,7 +901,13 @@ const make = Effect.gen(function* () {
                     );
               if (preparationStillRequired) {
                 yield* schedulePreparation(
-                  { ...input, workspaceStrategy: preparationStrategy },
+                  {
+                    ...input,
+                    ...(projection.thread.executionWorkspaceRoot === undefined
+                      ? {}
+                      : { executionWorkspaceRoot: projection.thread.executionWorkspaceRoot }),
+                    workspaceStrategy: preparationStrategy,
+                  },
                   threadId,
                   runId,
                 );
@@ -960,6 +981,9 @@ const make = Effect.gen(function* () {
       {
         commandId: input.commandId,
         projectId: projection.thread.projectId,
+        ...(projection.thread.executionWorkspaceRoot === undefined
+          ? {}
+          : { executionWorkspaceRoot: projection.thread.executionWorkspaceRoot }),
         workspaceStrategy: reuse?.strategy ?? workspacePreparation,
         ...(reuse === null ? {} : { reusedWorktree: reuse.reusedWorktree }),
         ...(message === undefined

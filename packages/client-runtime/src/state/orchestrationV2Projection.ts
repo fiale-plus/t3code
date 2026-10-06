@@ -162,6 +162,7 @@ export function applyOrchestrationV2ProjectionEvent(
   const base = { ...projection, updatedAt: event.occurredAt };
   switch (event.type) {
     case "thread.created":
+    case "thread.project-moved":
     case "thread.archived":
     case "thread.unarchived":
     case "thread.deleted":

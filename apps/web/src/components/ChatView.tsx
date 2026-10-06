@@ -277,6 +277,7 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
+import { ThreadProjectDialog } from "./MoveThreadDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
 import { DeviceSetup } from "./device/DeviceSetup";
@@ -407,6 +408,7 @@ import { useProjectClone } from "../state/projectClones";
 import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
+  readThreadShell,
   resolveThreadDetailRef,
   useProject,
   useProjects,
@@ -1039,14 +1041,14 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         cwd: launchContext?.cwd ?? summary.cwd,
         worktreePath: worktreePathForLaunch,
         runtimeEnv: projectScriptRuntimeEnv({
-          project: { cwd: project.workspaceRoot },
+          project: { cwd: serverThread?.executionWorkspaceRoot ?? project.workspaceRoot },
           worktreePath: worktreePathForLaunch,
         }),
       });
     }
 
     return next;
-  }, [drawerTerminalSessions, launchContext, project]);
+  }, [drawerTerminalSessions, launchContext, project, serverThread?.executionWorkspaceRoot]);
   const serverOrderedTerminalIds = useMemo(
     () => drawerTerminalSessions.map((session) => session.target.terminalId),
     [drawerTerminalSessions],
@@ -1098,21 +1100,21 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
       launchContext?.cwd ??
       (project
         ? projectScriptCwd({
-            project: { cwd: project.workspaceRoot },
+            project: { cwd: serverThread?.executionWorkspaceRoot ?? project.workspaceRoot },
             worktreePath: effectiveWorktreePath,
           })
         : null),
-    [effectiveWorktreePath, launchContext?.cwd, project],
+    [effectiveWorktreePath, launchContext?.cwd, project, serverThread?.executionWorkspaceRoot],
   );
   const runtimeEnv = useMemo(
     () =>
       project
         ? projectScriptRuntimeEnv({
-            project: { cwd: project.workspaceRoot },
+            project: { cwd: serverThread?.executionWorkspaceRoot ?? project.workspaceRoot },
             worktreePath: effectiveWorktreePath,
           })
         : {},
-    [effectiveWorktreePath, project],
+    [effectiveWorktreePath, project, serverThread?.executionWorkspaceRoot],
   );
 
   const bumpFocusRequestId = useCallback(() => {
@@ -1378,21 +1380,27 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
       activeSummary?.cwd ??
       (project
         ? projectScriptCwd({
-            project: { cwd: project.workspaceRoot },
+            project: { cwd: serverThread?.executionWorkspaceRoot ?? project.workspaceRoot },
             worktreePath,
           })
         : null),
-    [activeSummary?.cwd, launchContext?.cwd, project, worktreePath],
+    [
+      activeSummary?.cwd,
+      launchContext?.cwd,
+      project,
+      worktreePath,
+      serverThread?.executionWorkspaceRoot,
+    ],
   );
   const runtimeEnv = useMemo(
     () =>
       project
         ? projectScriptRuntimeEnv({
-            project: { cwd: project.workspaceRoot },
+            project: { cwd: serverThread?.executionWorkspaceRoot ?? project.workspaceRoot },
             worktreePath,
           })
         : {},
-    [project, worktreePath],
+    [project, worktreePath, serverThread?.executionWorkspaceRoot],
   );
   const terminalLabelsById = useMemo(() => {
     const labels = new Map<string, string>();
@@ -1424,7 +1432,7 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
         summary?.cwd ??
         (project
           ? projectScriptCwd({
-              project: { cwd: project.workspaceRoot },
+              project: { cwd: serverThread?.executionWorkspaceRoot ?? project.workspaceRoot },
               worktreePath: terminalWorktreePath,
             })
           : null);
@@ -1433,7 +1441,7 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
         cwd: terminalCwd,
         worktreePath: terminalWorktreePath,
         runtimeEnv: projectScriptRuntimeEnv({
-          project: { cwd: project.workspaceRoot },
+          project: { cwd: serverThread?.executionWorkspaceRoot ?? project.workspaceRoot },
           worktreePath: terminalWorktreePath,
         }),
       });
@@ -1446,6 +1454,7 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
     project,
     surface.terminalIds,
     threadWorktreePath,
+    serverThread?.executionWorkspaceRoot,
   ]);
 
   if (!project || !cwd) return null;
@@ -4028,7 +4037,7 @@ export default function ChatView(props: ChatViewProps) {
 
   const gitCwd = activeProject
     ? projectScriptCwd({
-        project: { cwd: activeProject.workspaceRoot },
+        project: { cwd: activeThread?.executionWorkspaceRoot ?? activeProject.workspaceRoot },
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
@@ -4125,7 +4134,8 @@ export default function ChatView(props: ChatViewProps) {
     ? activeProviderStatus
     : null;
   const hasTimelineTopBanner = Boolean(timelineThreadError) || visibleProviderStatus !== null;
-  const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const activeProjectCwd =
+    activeThread?.executionWorkspaceRoot ?? activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   useLayoutEffect(() => {
@@ -4679,7 +4689,7 @@ export default function ChatView(props: ChatViewProps) {
           cwd: cwdForOpen,
           ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
           env: projectScriptRuntimeEnv({
-            project: { cwd: activeProject.workspaceRoot },
+            project: { cwd: activeThread?.executionWorkspaceRoot ?? activeProject.workspaceRoot },
             worktreePath: activeThreadWorktreePath,
           }),
         },
@@ -4725,7 +4735,7 @@ export default function ChatView(props: ChatViewProps) {
           cwd: cwdForOpen,
           ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
           env: projectScriptRuntimeEnv({
-            project: { cwd: activeProject.workspaceRoot },
+            project: { cwd: activeThread?.executionWorkspaceRoot ?? activeProject.workspaceRoot },
             worktreePath: activeThreadWorktreePath,
           }),
         },
@@ -4764,7 +4774,7 @@ export default function ChatView(props: ChatViewProps) {
         cwd: cwdForOpen,
         ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
         env: projectScriptRuntimeEnv({
-          project: { cwd: activeProject.workspaceRoot },
+          project: { cwd: activeThread?.executionWorkspaceRoot ?? activeProject.workspaceRoot },
           worktreePath: activeThreadWorktreePath,
         }),
       },
@@ -4852,7 +4862,7 @@ export default function ChatView(props: ChatViewProps) {
 
       const runtimeEnv = projectScriptRuntimeEnv({
         project: {
-          cwd: activeProject.workspaceRoot,
+          cwd: activeThread.executionWorkspaceRoot ?? activeProject.workspaceRoot,
         },
         worktreePath: targetWorktreePath,
         ...(options?.env ? { extraEnv: options.env } : {}),
@@ -5685,7 +5695,7 @@ export default function ChatView(props: ChatViewProps) {
         cwd,
         ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
         env: projectScriptRuntimeEnv({
-          project: { cwd: activeProject.workspaceRoot },
+          project: { cwd: activeThread?.executionWorkspaceRoot ?? activeProject.workspaceRoot },
           worktreePath: activeThreadWorktreePath,
         }),
       },
@@ -5724,7 +5734,7 @@ export default function ChatView(props: ChatViewProps) {
           cwd,
           ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
           env: projectScriptRuntimeEnv({
-            project: { cwd: activeProject.workspaceRoot },
+            project: { cwd: activeThread?.executionWorkspaceRoot ?? activeProject.workspaceRoot },
             worktreePath: activeThreadWorktreePath,
           }),
         },
@@ -8282,8 +8292,23 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
 
+  const [pendingFork, setPendingFork] = useState<{
+    readonly sourceThreadId: ThreadId;
+    readonly runId: RunId;
+    readonly sourceProjectId: ProjectId;
+  } | null>(null);
   const onForkFromRun = useCallback(
     async (input: { readonly sourceThreadId: ThreadId; readonly runId: RunId }) => {
+      const source = readThreadShell(scopeThreadRef(environmentId, input.sourceThreadId));
+      if (source) setPendingFork({ ...input, sourceProjectId: source.projectId });
+    },
+    [environmentId],
+  );
+  const confirmForkFromRun = useCallback(
+    async (
+      input: { readonly sourceThreadId: ThreadId; readonly runId: RunId },
+      targetProjectId: ProjectId,
+    ) => {
       if (!activeThread || activeEnvironmentUnavailable) return;
       const targetThreadId = newThreadId();
       const targetThreadRef = scopeThreadRef(environmentId, targetThreadId);
@@ -8293,16 +8318,14 @@ export default function ChatView(props: ChatViewProps) {
           sourceThreadId: input.sourceThreadId,
           targetThreadId,
           runId: input.runId,
+          targetProjectId,
           title: `${activeThread.title} fork`,
         },
       });
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
-          setThreadError(
-            activeThread.id,
-            error instanceof Error ? error.message : "Failed to fork this response.",
-          );
+          throw error instanceof Error ? error : new Error("Failed to fork this response.");
         }
         return;
       }
@@ -9201,10 +9224,12 @@ export default function ChatView(props: ChatViewProps) {
                       interactionMode: target.interactionMode,
                       branch: activeThreadBranch,
                       worktreePath: null,
+                      executionWorkspaceRoot: activeThread.executionWorkspaceRoot,
                       createdAt: messageCreatedAt,
                     },
                     prepareWorktree: {
-                      projectCwd: activeProject.workspaceRoot,
+                      projectCwd:
+                        activeThread.executionWorkspaceRoot ?? activeProject.workspaceRoot,
                       baseBranch: activeThreadBranch!,
                       requireWorktree: true,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
@@ -9525,6 +9550,7 @@ export default function ChatView(props: ChatViewProps) {
                       interactionMode: sendInteractionMode,
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
+                      executionWorkspaceRoot: activeThread.executionWorkspaceRoot,
                       createdAt: activeThread.createdAt,
                     },
                   }
@@ -9532,7 +9558,8 @@ export default function ChatView(props: ChatViewProps) {
               ...(baseBranchForWorktree
                 ? {
                     prepareWorktree: {
-                      projectCwd: activeProject.workspaceRoot,
+                      projectCwd:
+                        activeThread.executionWorkspaceRoot ?? activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
@@ -10203,6 +10230,7 @@ export default function ChatView(props: ChatViewProps) {
         interactionMode: "default",
         branch: activeThreadBranch,
         worktreePath: activeThread.worktreePath,
+        executionWorkspaceRoot: activeThread.executionWorkspaceRoot,
         createdAt,
       },
     });
@@ -11495,7 +11523,7 @@ export default function ChatView(props: ChatViewProps) {
                 open
                 environmentId={activeThread.environmentId}
                 threadId={activeThread.id}
-                cwd={activeProject?.workspaceRoot ?? null}
+                cwd={activeProjectCwd}
                 initialReference={pullRequestDialogState.initialReference}
                 onOpenChange={(open) => {
                   if (!open) {
@@ -11669,6 +11697,16 @@ export default function ChatView(props: ChatViewProps) {
         </AlertDialogPopup>
       </AlertDialog>
       <LinkPullRequestDialogHost />
+      {pendingFork && activeThread && (
+        <ThreadProjectDialog
+          key={`${environmentId}:${pendingFork.sourceThreadId}:${pendingFork.runId}`}
+          environmentId={environmentId}
+          sourceProjectId={pendingFork.sourceProjectId}
+          action="Fork"
+          onClose={() => setPendingFork(null)}
+          onConfirm={(target) => confirmForkFromRun(pendingFork, target.projectId)}
+        />
+      )}
       {expandedImage && (
         <ExpandedImageDialog
           key={expandedImageKey(expandedImage)}

@@ -21,6 +21,18 @@ Android uses **Material You Layout** by default unless you have turned it off in
 It changes shapes, spacing, and controls independently
 of the selected theme.
 
+## Sidebar modes
+
+On web and desktop, choose **Default**, **Legacy**, or **Chaotic** from the layout icon
+in the sidebar header. Hover to preview the three-position control; click, tap, or
+keyboard-focus the icon to select a mode. The same preference is under
+**Settings → General → Legacy features → Sidebar mode** and persists on this device.
+
+Default keeps the current sidebar. Legacy uses the nested project/thread tree.
+Chaotic keeps that nesting with 28px title/status-only thread rows; row actions appear
+on hover or keyboard focus. Each project remains a separate entry, including projects
+that use the same directory. Existing legacy-sidebar preferences migrate to Legacy.
+
 ## Composer context
 
 Git-backed projects show branch and worktree controls below the composer while you create a thread.

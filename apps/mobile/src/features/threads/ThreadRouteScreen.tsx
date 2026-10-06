@@ -755,11 +755,15 @@ function ThreadRouteContent(
         threadDetailWorktreePath: selectedThreadDetailWorktreePath,
       });
       const cwd = projectScriptCwd({
-        project: { cwd: selectedThreadProject.workspaceRoot },
+        project: {
+          cwd: selectedThread.executionWorkspaceRoot ?? selectedThreadProject.workspaceRoot,
+        },
         worktreePath: preferredWorktreePath,
       });
       const env = projectScriptRuntimeEnv({
-        project: { cwd: selectedThreadProject.workspaceRoot },
+        project: {
+          cwd: selectedThread.executionWorkspaceRoot ?? selectedThreadProject.workspaceRoot,
+        },
         worktreePath: preferredWorktreePath,
       });
       stagePendingTerminalLaunch({
@@ -913,7 +917,8 @@ function ThreadRouteContent(
         input: buildProjectThreadStartTurnInput({
           ...metadata,
           projectId: selectedThread.projectId,
-          projectCwd: selectedThreadProject.workspaceRoot,
+          projectCwd: selectedThread.executionWorkspaceRoot ?? selectedThreadProject.workspaceRoot,
+          executionWorkspaceRoot: selectedThread.executionWorkspaceRoot,
           text: setupMessage.text,
           ...(setupMessage.context ? { context: setupMessage.context } : {}),
           uploadedAttachments: setupMessage.attachments,
@@ -1049,7 +1054,9 @@ function ThreadRouteContent(
           onCancelQueuedRunEdit={composer.cancelQueuedRunEdit}
           onRemoveQueuedEditAttachment={composer.onRemoveQueuedEditAttachment}
           environmentId={selectedThread.environmentId}
-          projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
+          projectWorkspaceRoot={
+            selectedThread.executionWorkspaceRoot ?? selectedThreadProject?.workspaceRoot ?? null
+          }
           threadCwd={selectedThreadCwd}
           selectedThreadQueueCount={composer.selectedThreadQueueCount}
           queuedMessages={composer.selectedThreadQueuedMessages}

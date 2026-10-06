@@ -38,6 +38,7 @@ import { useClientSettings } from "./useSettings";
 interface NewThreadWorkspaceOptions {
   branch?: string | null;
   worktreePath?: string | null;
+  executionWorkspaceRoot?: string;
   envMode?: DraftThreadEnvMode;
   startFromOrigin?: boolean;
 }
@@ -49,6 +50,9 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
   return {
     ...(options?.branch !== undefined ? { branch: options.branch } : {}),
     ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
+    ...(options?.executionWorkspaceRoot !== undefined
+      ? { executionWorkspaceRoot: options.executionWorkspaceRoot }
+      : {}),
     ...(options?.envMode !== undefined ? { envMode: options.envMode } : {}),
     ...(options?.startFromOrigin !== undefined ? { startFromOrigin: options.startFromOrigin } : {}),
   };
@@ -69,6 +73,7 @@ export function useNewThreadHandler() {
       options?: {
         branch?: string | null;
         worktreePath?: string | null;
+        executionWorkspaceRoot?: string;
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
@@ -166,6 +171,7 @@ export function useNewThreadHandler() {
         : scopedProjectKey(projectRef);
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
+      const hasExecutionWorkspaceOption = options?.executionWorkspaceRoot !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
@@ -206,6 +212,7 @@ export function useNewThreadHandler() {
           const hasExplicitWorkspaceOption =
             hasBranchOption ||
             hasWorktreePathOption ||
+            hasExecutionWorkspaceOption ||
             hasEnvModeOption ||
             hasStartFromOriginOption;
           // Resurrecting an empty stored draft must not resurrect its stale
@@ -338,6 +345,7 @@ export function useNewThreadHandler() {
         if (
           hasBranchOption ||
           hasWorktreePathOption ||
+          hasExecutionWorkspaceOption ||
           hasEnvModeOption ||
           hasStartFromOriginOption
         ) {
@@ -405,6 +413,7 @@ export function useNewThreadHandler() {
           createdAt,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
+          executionWorkspaceRoot: options?.executionWorkspaceRoot,
           envMode: initialEnvMode,
           startFromOrigin:
             options?.startFromOrigin ??

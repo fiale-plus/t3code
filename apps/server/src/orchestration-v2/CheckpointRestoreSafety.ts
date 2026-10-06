@@ -59,10 +59,14 @@ export const isCheckpointRestoreIsolated = Effect.fn("orchestrationV2.isCheckpoi
               .map((session) => session.cwd),
           ].filter((value): value is string => value !== null);
           if (otherThread.worktreePath === null) {
-            // A thread without a worktree works in its project's checkout.
-            const project = yield* projects.get(otherThread.projectId, { includeDeleted: true });
-            if (Option.isNone(project)) return false;
-            paths.push(project.value.workspaceRoot);
+            // Organizational placement need not own the checkout this thread uses.
+            if (otherThread.executionWorkspaceRoot !== undefined) {
+              paths.push(otherThread.executionWorkspaceRoot);
+            } else {
+              const project = yield* projects.get(otherThread.projectId, { includeDeleted: true });
+              if (Option.isNone(project)) return false;
+              paths.push(project.value.workspaceRoot);
+            }
           }
           for (const candidate of paths) {
             if (checkedPaths.has(candidate)) continue;

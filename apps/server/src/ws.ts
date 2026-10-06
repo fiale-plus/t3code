@@ -1967,6 +1967,9 @@ const layerWsRpc = (
                     ? {}
                     : { reuseExistingThread: input.reuseExistingThread }),
                   projectId: input.projectId,
+                  ...(input.executionWorkspaceRoot === undefined
+                    ? {}
+                    : { executionWorkspaceRoot: input.executionWorkspaceRoot }),
                   title: input.title,
                   ...(input.generateTitle === undefined
                     ? {}
@@ -3202,8 +3205,8 @@ const layerWsRpc = (
                 });
               }
               if (input.resource._tag === "project-favicon") {
-                const project = yield* projectStore
-                  .findActiveByWorkspaceRoot(input.resource.cwd)
+                const matchingProjects = yield* projectStore
+                  .list({ workspaceRoot: input.resource.cwd })
                   .pipe(
                     Effect.mapError(
                       (cause) =>
@@ -3213,23 +3216,27 @@ const layerWsRpc = (
                         }),
                     ),
                   );
-                if (Option.isNone(project)) {
+                if (matchingProjects.length === 0) {
                   return yield* new AssetWorkspaceContextNotFoundError({
                     resource: input.resource,
                   });
                 }
+                // Directory-only requests cannot select a project's customization.
+                // Explicit resource paths still resolve against this directory.
+                if (matchingProjects.length > 1) {
+                  return yield* issueAssetUrl({ resource: input.resource });
+                }
+                const project = matchingProjects[0]!;
                 // A cloned project exists before its files do. Clients ask again
                 // when the clone lands (see createProjectFaviconUrlAtomFamily).
-                const clone = yield* projectCloneTracker.get(project.value.projectId);
+                const clone = yield* projectCloneTracker.get(project.projectId);
                 return yield* issueAssetUrl({
                   resource: input.resource,
-                  ...(project.value.faviconPath
-                    ? { projectFaviconPath: project.value.faviconPath }
-                    : {}),
+                  ...(project.faviconPath ? { projectFaviconPath: project.faviconPath } : {}),
                   projectCheckoutPending:
                     clone !== null &&
                     clone.phase !== "done" &&
-                    clone.destinationPath === project.value.workspaceRoot,
+                    clone.destinationPath === project.workspaceRoot,
                 });
               }
               const thread = yield* threadManagement
@@ -3259,7 +3266,10 @@ const layerWsRpc = (
               }
               return yield* issueAssetUrl({
                 resource: input.resource,
-                workspaceRoot: thread.thread.worktreePath ?? project.value.workspaceRoot,
+                workspaceRoot:
+                  thread.thread.worktreePath ??
+                  thread.thread.executionWorkspaceRoot ??
+                  project.value.workspaceRoot,
               });
             }),
             { "rpc.aggregate": "workspace" },

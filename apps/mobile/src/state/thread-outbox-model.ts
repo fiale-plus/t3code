@@ -42,6 +42,7 @@ const QueuedThreadCreationSchema = Schema.Struct({
   workspaceMode: Schema.Literals(["local", "worktree"]),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  executionWorkspaceRoot: Schema.optional(Schema.String),
   startFromOrigin: Schema.optional(Schema.Boolean),
 });
 
@@ -74,6 +75,7 @@ export interface QueuedThreadCreation {
   readonly workspaceMode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  readonly executionWorkspaceRoot?: string | undefined;
   readonly startFromOrigin?: boolean;
 }
 

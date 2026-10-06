@@ -105,8 +105,6 @@ export const decodeProjectCommandRejection = Schema.decodeUnknownOption(
 export interface ProjectCommandState {
   /** The target project's row, including a soft-deleted one; only create sees deleted rows as taken. */
   readonly project: ProjectRow | undefined;
-  /** The active project that holds the command's requested workspace root, if any. */
-  readonly workspaceOwner: ProjectRow | undefined;
 }
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -133,13 +131,6 @@ export function planProjectCommand(input: {
       }),
     );
   const activeProject = state.project?.deletedAt === null ? state.project : undefined;
-  const requireWorkspaceAvailable = (workspaceRoot: string) =>
-    state.workspaceOwner === undefined || state.workspaceOwner.projectId === command.projectId
-      ? undefined
-      : new ProjectWorkspaceConflictError({
-          workspaceRoot,
-          conflictingProjectId: state.workspaceOwner.projectId,
-        });
   const occurredAt = DateTime.formatIso(input.now);
   const base = {
     eventId: input.eventId,
@@ -159,8 +150,6 @@ export function planProjectCommand(input: {
           `Project '${command.projectId}' already exists and cannot be created twice.`,
         );
       }
-      const conflict = requireWorkspaceAvailable(command.workspaceRoot);
-      if (conflict !== undefined) return Result.fail(conflict);
       return Result.succeed({
         ...base,
         type: "project.created",
@@ -201,10 +190,6 @@ export function planProjectCommand(input: {
             );
           }
         }
-      }
-      if (command.workspaceRoot !== undefined) {
-        const conflict = requireWorkspaceAvailable(command.workspaceRoot);
-        if (conflict !== undefined) return Result.fail(conflict);
       }
       return Result.succeed({
         ...base,

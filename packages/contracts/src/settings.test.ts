@@ -11,9 +11,11 @@ import {
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
+  StoredClientSettingsSchema,
 } from "./settings.ts";
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+const decodeStoredClientSettings = Schema.decodeSync(StoredClientSettingsSchema);
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const encodeClientSettings = Schema.encodeSync(ClientSettingsSchema);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
@@ -610,35 +612,39 @@ describe("ClientSettings environment identification", () => {
 });
 
 describe("ClientSettings sidebar", () => {
-  it("defaults to the current sidebar", () => {
-    expect(decodeClientSettings({}).legacySidebarEnabled).toBe(false);
+  it("migrates an old legacy selection before applying defaults", () => {
+    const migrated = decodeStoredClientSettings({
+      legacySidebarEnabled: true,
+      fontSizeInterface: 13,
+    });
+    expect(migrated.sidebarMode).toBe("legacy");
+    expect(migrated.fontSizeInterface).toBe(13);
+    expect(encodeClientSettings(migrated)).not.toHaveProperty("legacySidebarEnabled");
   });
 
-  it("drops the retired sidebar v2 beta keys, resetting everyone to the default", () => {
+  it("preserves a new mode over a stale legacy selection", () => {
+    const migrated = decodeStoredClientSettings({
+      sidebarMode: "chaotic",
+      legacySidebarEnabled: true,
+    });
+    expect(migrated.sidebarMode).toBe("chaotic");
+    expect(encodeClientSettings(migrated)).not.toHaveProperty("legacySidebarEnabled");
+  });
+
+  it("rejects unsupported sidebar modes", () => {
+    expect(() => decodeClientSettings({ sidebarMode: "compact" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ sidebarMode: "compact" })).toThrow();
+  });
+
+  it("drops retired sidebar beta keys", () => {
     const decoded = decodeClientSettings({
       sidebarV2Enabled: false,
       sidebarV2ConfiguredByUser: true,
     });
-    expect(decoded.legacySidebarEnabled).toBe(false);
+    expect(decoded.sidebarMode).toBe("default");
     expect(decoded).not.toHaveProperty("sidebarV2Enabled");
     expect(decoded).not.toHaveProperty("sidebarV2ConfiguredByUser");
   });
-
-  it("drops the retired compact sidebar keys for users who opted in", () => {
-    const stored = { compactSidebarEnabled: true, sidebarCompactThreadRows: true };
-    const decoded = decodeClientSettings(stored);
-    expect(decoded).not.toHaveProperty("compactSidebarEnabled");
-    expect(decoded).not.toHaveProperty("sidebarCompactThreadRows");
-    expect(decodeClientSettingsPatch(stored)).toEqual({});
-  });
-
-  it("preserves an explicit legacy sidebar opt-in", () => {
-    expect(decodeClientSettings({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(true);
-    expect(decodeClientSettingsPatch({ legacySidebarEnabled: true }).legacySidebarEnabled).toBe(
-      true,
-    );
-  });
-
   it("keeps unpin confirmation opt-in and patchable", () => {
     expect(decodeClientSettings({}).confirmThreadUnpin).toBe(false);
     expect(decodeClientSettingsPatch({ confirmThreadUnpin: true }).confirmThreadUnpin).toBe(true);

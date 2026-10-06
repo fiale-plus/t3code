@@ -195,13 +195,24 @@ const ThreadConfigureTool = Tool.make("t3_thread_configure", {
   }),
 }).annotate(Tool.Destructive, true);
 
+const ThreadMoveTool = Tool.make("t3_thread_move", {
+  ...commandTool,
+  description:
+    "Move a thread's organizational placement to another project in this environment. This preserves its execution workspace, history, and provider session. Omit threadId for this thread.",
+  parameters: Schema.Struct({
+    threadId: Schema.optional(ThreadId),
+    targetProjectId: ProjectId,
+  }),
+}).annotate(Tool.Destructive, true);
+
 const transferResult = Schema.Struct({ sequence: NonNegativeInt, targetThreadId: ThreadId });
 const ThreadForkTool = Tool.make("t3_thread_fork", {
   ...commandTool,
   description:
-    "Fork a thread from a stable run or checkpoint using the existing fork command. Omit threadId to fork this thread. The fork inherits the source configuration. Acceptance does not mean a provider turn has completed.",
+    "Fork a thread from a stable run or checkpoint. Omit threadId to fork this thread and targetProjectId to keep its project. Any project in this environment can receive the fork; its source execution workspace and configuration are preserved. Acceptance does not mean a provider turn has completed.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
+    targetProjectId: Schema.optional(ProjectId),
     sourcePoint: OrchestrationV2ThreadForkSourcePoint,
     title: Schema.optional(TrimmedNonEmptyString),
   }),
@@ -271,6 +282,7 @@ export const ThreadToolkit = Toolkit.make(
   ScheduledTaskRunTool,
   ThreadSearchTool,
   ThreadForkTool,
+  ThreadMoveTool,
   ThreadMergeBackTool,
   ThreadTransfersTool,
   ThreadConfigurationTool,

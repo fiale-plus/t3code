@@ -289,6 +289,49 @@ function waitUntil<E, R>(predicate: () => Effect.Effect<boolean, E, R>): Effect.
   });
 }
 
+it.effect.each(["root", "worktree"] as const)(
+  "launches in the inherited execution root rather than the organizational project: %s",
+  (strategy) =>
+    Effect.gen(function* () {
+      const setupEntered = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(Effect.andThen(Effect.never)),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const launched = yield* launches.launch({
+          ...launchInput({
+            command: `command:launch:inherited:${strategy}`,
+            thread: `thread:launch:inherited:${strategy}`,
+            workspace:
+              strategy === "root"
+                ? { type: "root", branch: "source-branch" }
+                : { type: "worktree", baseRef: "main", branch: "source-branch" },
+          }),
+          executionWorkspaceRoot: "/source-repository",
+        });
+        yield* Deferred.await(setupEntered);
+        const projection = yield* threads.getThreadProjection(launched.threadId);
+        assert.equal(projection.thread.projectId, projectId);
+        assert.equal(projection.thread.executionWorkspaceRoot, "/source-repository");
+        assert.equal(
+          (yield* encodeThreadProjection(projection)).thread.executionWorkspaceRoot,
+          "/source-repository",
+        );
+        assert.equal(harness.runSetup.mock.calls[0]?.[0].projectCwd, "/source-repository");
+        assert.equal(
+          harness.runSetup.mock.calls[0]?.[0].worktreePath,
+          strategy === "root" ? "/source-repository" : "/repo-worktrees/feature",
+        );
+        if (strategy === "worktree") {
+          assert.equal(harness.createWorktree.mock.calls[0]?.[0].cwd, "/source-repository");
+        }
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
 it.effect.each(
   (["new", "existing"] as const).flatMap((target) =>
     (["user", "agent"] as const).map((createdBy) => ({ target, createdBy })),
@@ -1049,6 +1092,54 @@ it.effect("falls back when the source control writer is unavailable", () =>
       );
     }).pipe(Effect.provide(harness.layer));
   }),
+);
+
+it.effect.each([false, true])(
+  "keeps a reused thread's pinned root when launching in Scratch (client supplies root: %s)",
+  (supplyRoot) =>
+    Effect.gen(function* () {
+      const setupEntered = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          managedProjectsRoot: "/projects",
+          folderForThread: () => Effect.succeed(Option.some("/scratch/new-folder")),
+        }),
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(Effect.andThen(Effect.never)),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const input = launchInput({
+          command: "command:launch:relocated-scratch",
+          thread: "thread:launch:relocated-scratch",
+        });
+        yield* threads.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("command:launch:relocated-scratch:create"),
+          threadId: input.threadId,
+          projectId,
+          title: input.title,
+          modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          branch: null,
+          worktreePath: null,
+          executionWorkspaceRoot: "/source-repository",
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* launches.launch({
+          ...input,
+          reuseExistingThread: true,
+          ...(supplyRoot ? { executionWorkspaceRoot: "/source-repository" } : {}),
+        });
+        yield* Deferred.await(setupEntered);
+        const projection = yield* threads.getThreadProjection(input.threadId);
+        assert.equal(projection.thread.executionWorkspaceRoot, "/source-repository");
+        assert.isNull(projection.thread.worktreePath);
+      }).pipe(Effect.provide(harness.layer));
+    }),
 );
 
 it.effect("runs a Scratch thread launched at the root in its own folder", () =>

@@ -896,7 +896,7 @@ export function ThreadRowLeadingStatus({
       [thread.environmentId, thread.projectId],
     ),
   );
-  const threadProjectCwd = threadProject?.workspaceRoot ?? null;
+  const threadProjectCwd = thread.executionWorkspaceRoot ?? threadProject?.workspaceRoot ?? null;
   const gitCwd = thread.worktreePath ?? threadProjectCwd;
   const linkedPullRequest = useLinkedThreadPullRequest(
     thread.environmentId,

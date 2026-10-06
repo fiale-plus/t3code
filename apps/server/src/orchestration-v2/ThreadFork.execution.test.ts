@@ -16,6 +16,8 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import { ClaudeProviderCapabilitiesV2 } from "./Adapters/ClaudeAdapterV2.ts";
@@ -24,6 +26,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
+import * as ProjectStore from "./ProjectStore.ts";
 
 const forkCases = (["codex", "claudeAgent"] as const).flatMap((driverName) => {
   const driver = ProviderDriverKind.make(driverName);
@@ -39,10 +42,13 @@ const forkCases = (["codex", "claudeAgent"] as const).flatMap((driverName) => {
     planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
     openSession: () => Effect.die("Execution is paused after dispatch for handoff inspection"),
   };
-  const layer = ProviderReplayHarness.layerWithRegistry(
-    { name: `fork-boundary-${driver}` },
-    ProviderAdapterRegistry.layerFromAdapters([adapter]),
-    { runEffectWorker: false },
+  const layer = Layer.merge(
+    ProviderReplayHarness.layerWithRegistry(
+      { name: `fork-boundary-${driver}` },
+      ProviderAdapterRegistry.layerFromAdapters([adapter]),
+      { runEffectWorker: false },
+    ),
+    ProjectStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
   );
 
   return (["failed", "interrupted", "cancelled"] as const).map((status) => ({
@@ -68,6 +74,35 @@ it.effect.each(forkCases)(
       const attemptId = RunAttemptId.make("interrupted-source-attempt");
       const providerTurnId = ProviderTurnId.make("interrupted-source-turn");
       const rootNodeId = NodeId.make("interrupted-source-root");
+      const projects = yield* ProjectStore.ProjectStoreV2;
+      const sourceProjectId = ProjectId.make("fork-boundary-project");
+      const targetProjectId = ProjectId.make("fork-boundary-target-project");
+      for (const [projectId, workspaceRoot] of [
+        [sourceProjectId, "/workspace/fork-source"],
+        [targetProjectId, "/workspace/fork-destination"],
+      ] as const) {
+        yield* projects.apply({
+          sequence: 0,
+          eventId: EventId.make(`seed:${projectId}`),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt: DateTime.formatIso(now),
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          type: "project.created",
+          payload: {
+            projectId,
+            title: projectId,
+            workspaceRoot,
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: DateTime.formatIso(now),
+            updatedAt: DateTime.formatIso(now),
+          },
+        });
+      }
 
       yield* orchestrator.dispatch({
         type: "thread.create",
@@ -223,6 +258,7 @@ it.effect.each(forkCases)(
         commandId: CommandId.make("fork-source"),
         sourceThreadId,
         targetThreadId,
+        targetProjectId,
         sourcePoint: { type: "run", runId: sourceRunId },
         createdBy: "user",
         creationSource: "web",
@@ -240,6 +276,9 @@ it.effect.each(forkCases)(
         creationSource: "web",
       });
       const target = yield* orchestrator.getThreadProjection(targetThreadId);
+      assert.equal(target.thread.projectId, targetProjectId);
+      assert.equal(target.thread.executionWorkspaceRoot, "/workspace/fork-source");
+      assert.isNull(target.thread.worktreePath);
       assert.equal(target.contextTransfers[0]?.resolution?.strategy, "portable_context");
       assert.lengthOf(target.contextHandoffs, 1);
       const handoff = target.contextHandoffs[0]!;

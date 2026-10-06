@@ -70,6 +70,7 @@ import * as ProjectStore from "./ProjectStore.ts";
 import type { ProviderAdapterV2SessionRuntime, ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
+import * as RuntimePolicy from "./RuntimePolicy.ts";
 import { shellStreamItemFromThreadShell } from "./ShellStream.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -270,9 +271,10 @@ const layerTest = Layer.mergeAll(
   ProjectionStore.layer,
   EffectOutbox.layer,
   ThreadCommandExecutor.layer,
+  RuntimePolicy.layerFromProjectStore.pipe(Layer.provide(ProjectStore.layer)),
 ).pipe(
   Layer.provide(McpSessionRegistryTestkit.layer),
-  Layer.provide(SqlitePersistence.layerMemory),
+  Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
@@ -299,6 +301,7 @@ const layerProjectDeletionTest = Layer.mergeAll(
   RuntimeLayer.layerProjectService,
   RuntimeLayer.layerEventSink,
   ThreadCommandExecutor.layer,
+  EffectOutbox.layer,
 ).pipe(
   Layer.provide(
     Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({
@@ -323,7 +326,7 @@ const layerProjectDeletionTest = Layer.mergeAll(
     }),
   ),
   Layer.provide(McpSessionRegistryTestkit.layer),
-  Layer.provide(SqlitePersistence.layerMemory),
+  Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
@@ -432,6 +435,89 @@ it.layer(layerProjectDeletionTest)("project deletion during thread commands", (i
           }),
         ),
       );
+    }),
+  );
+  it.effect("keeps same-directory projects independent and rejects a deleted move target", () =>
+    Effect.gen(function* () {
+      const projects = yield* ProjectService.ProjectService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const sql = yield* SqlClient.SqlClient;
+      const firstProjectId = ProjectId.make("same-directory:first");
+      const secondProjectId = ProjectId.make("same-directory:second");
+      const threadId = ThreadId.make("same-directory:thread");
+      const workspaceRoot = "/work/same-directory";
+      for (const projectId of [firstProjectId, secondProjectId]) {
+        const created = yield* projects.create({
+          commandId: CommandId.make(`${projectId}:create`),
+          projectId,
+          title: projectId,
+          workspaceRoot,
+        });
+        assert.equal(created.id, projectId);
+        assert.equal(created.workspaceRoot, workspaceRoot);
+      }
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`${threadId}:create`),
+        createdBy: "user",
+        creationSource: "web",
+        threadId,
+        projectId: firstProjectId,
+        title: "Independent organization",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.project.move",
+        commandId: CommandId.make(`${threadId}:move`),
+        threadId,
+        targetProjectId: secondProjectId,
+      });
+      const moved = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(moved.thread.projectId, secondProjectId);
+      assert.equal(moved.thread.executionWorkspaceRoot, workspaceRoot);
+      const snapshot = yield* orchestrator.getShellSnapshot();
+      assert.isTrue(Option.isSome(yield* projects.getById(firstProjectId)));
+      assert.isTrue(Option.isSome(yield* projects.getById(secondProjectId)));
+      assert.equal(
+        snapshot.threads.find((thread) => thread.id === threadId)?.projectId,
+        secondProjectId,
+      );
+
+      // Deleting the old organization must not delete a moved thread, even
+      // when the two project IDs refer to the same directory.
+      const deleted = yield* projects.delete({
+        commandId: CommandId.make(`${firstProjectId}:delete`),
+        projectId: firstProjectId,
+        force: true,
+      });
+      assert.isNotNull(deleted.deletedAt);
+      assert.deepEqual(yield* orchestrator.getThreadProjection(threadId), moved);
+      const remainingProject = yield* projects.getById(secondProjectId);
+      assert.isTrue(Option.isSome(remainingProject));
+      assert.equal(Option.getOrThrow(remainingProject).workspaceRoot, workspaceRoot);
+      assert.isNull(Option.getOrThrow(remainingProject).deletedAt);
+
+      const command = {
+        type: "thread.project.move" as const,
+        commandId: CommandId.make(`${threadId}:deleted-target`),
+        threadId,
+        targetProjectId: firstProjectId,
+      };
+      const failure = yield* orchestrator.dispatch(command).pipe(Effect.flip);
+      assert.instanceOf(failure, Orchestrator.OrchestratorDispatchError);
+      assert.deepEqual(yield* orchestrator.getThreadProjection(threadId), moved);
+      assert.equal((yield* orchestrator.getThreadShell(threadId))?.projectId, secondProjectId);
+      assert.deepEqual(yield* outbox.listByCommandId(command.commandId), []);
+      const rejectedEvents = yield* sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count FROM orchestration_events
+        WHERE command_id = ${command.commandId}
+      `;
+      assert.equal(rejectedEvents[0]?.count, 0);
     }),
   );
 });
@@ -1960,6 +2046,192 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.isNotNull(projection.thread.archivedAt);
       assert.isNotNull(projection.thread.deletedAt);
     }),
+  );
+
+  it.effect.each([null, "/workspace/move-worktree"])(
+    "moves an active thread without changing execution context, and replays it: %s",
+    (worktreePath) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
+        const policy = yield* RuntimePolicy.RuntimePolicyV2;
+        const sql = yield* SqlClient.SqlClient;
+        const suffix = worktreePath === null ? "root" : "worktree";
+        const threadId = ThreadId.make(`project-move:${suffix}`);
+        const sourceProjectId = ProjectId.make(`project-move:source:${suffix}`);
+        const targetProjectId = ProjectId.make(`project-move:target:${suffix}`);
+        for (const [projectId, workspaceRoot] of [
+          [sourceProjectId, "/workspace/move-source"],
+          [targetProjectId, "/workspace/move-target"],
+        ] as const) {
+          yield* seedProject({
+            projectId,
+            workspaceRoot,
+            title: projectId,
+            defaultModelSelection: null,
+            createdAt: "2026-09-01T00:00:00.000Z",
+          });
+        }
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`${threadId}:create`),
+          createdBy: "user",
+          creationSource: "web",
+          threadId,
+          projectId: sourceProjectId,
+          title: "Move while running",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "feature/source",
+          worktreePath,
+        });
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`${threadId}:message`),
+          createdBy: "user",
+          creationSource: "web",
+          threadId,
+          messageId: MessageId.make(`${threadId}:message`),
+          text: "Keep working",
+          attachments: [],
+          modelSelection,
+          dispatchMode: { type: "start_immediately" },
+        });
+        const starting = yield* orchestrator.getThreadProjection(threadId);
+        const run = starting.runs[0]!;
+        const now = yield* DateTime.now;
+        const session = {
+          id: starting.providerThreads[0]!.providerSessionId!,
+          driver,
+          providerInstanceId: modelSelection.instanceId,
+          status: "running" as const,
+          cwd: worktreePath ?? "/workspace/move-source",
+          model: modelSelection.model,
+          capabilities: CodexProviderCapabilitiesV2,
+          createdAt: now,
+          updatedAt: now,
+          lastError: null,
+        };
+        yield* eventSink.write({
+          commandId: CommandId.make(`${threadId}:running`),
+          events: [
+            {
+              id: EventId.make(`${threadId}:run-running`),
+              type: "run.updated",
+              threadId,
+              runId: run.id,
+              occurredAt: now,
+              payload: { ...run, status: "running", startedAt: now },
+            },
+            {
+              id: EventId.make(`${threadId}:session`),
+              type: "provider-session.attached",
+              threadId,
+              occurredAt: now,
+              payload: session,
+            },
+          ],
+        });
+        const before = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(before.runs[0]?.status, "running");
+        assert.equal(before.providerSessions[0]?.status, "running");
+        assert.isDefined(before.thread.activeProviderThreadId);
+        assert.isNotNull(before.thread.activeProviderThreadId);
+        assert.equal(
+          (yield* policy.resolve({ thread: before.thread, modelSelection })).cwd,
+          session.cwd,
+        );
+        const command = {
+          type: "thread.project.move" as const,
+          commandId: CommandId.make(`${threadId}:move`),
+          threadId,
+          targetProjectId,
+        };
+        const result = yield* orchestrator.dispatch(command);
+        assert.deepEqual(
+          result.storedEvents.map((stored) => stored.event.type),
+          ["thread.project-moved"],
+        );
+        assert.deepEqual(yield* outbox.listByCommandId(command.commandId), []);
+        const retried = yield* orchestrator.dispatch(command);
+        assert.deepEqual(retried, result);
+        const durableMoves = yield* sql<{ readonly payload_json: string }>`
+        SELECT payload_json FROM orchestration_events
+        WHERE stream_id = ${threadId} AND event_type = 'thread.project-moved'
+      `;
+        assert.lengthOf(durableMoves, 1);
+        assert.deepInclude(JSON.parse(durableMoves[0]!.payload_json), {
+          projectId: targetProjectId,
+          executionWorkspaceRoot: "/workspace/move-source",
+          worktreePath,
+        });
+        const moved = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(moved.thread.projectId, targetProjectId);
+        assert.equal(moved.thread.executionWorkspaceRoot, "/workspace/move-source");
+        assert.equal(moved.thread.worktreePath, worktreePath);
+        assert.equal(moved.thread.branch, before.thread.branch);
+        const movedShell = yield* orchestrator.getThreadShell(threadId);
+        assert.equal(movedShell?.projectId, targetProjectId);
+        assert.equal(movedShell?.worktreePath, worktreePath);
+        assert.equal(moved.thread.activeProviderThreadId, before.thread.activeProviderThreadId);
+        assert.deepEqual(moved.runs, before.runs);
+        assert.deepEqual(moved.providerThreads, before.providerThreads);
+        assert.deepEqual(moved.providerSessions, before.providerSessions);
+        assert.equal(
+          (yield* policy.resolve({ thread: moved.thread, modelSelection })).cwd,
+          session.cwd,
+        );
+        // Change the old project's root after relocation: replay must use the captured root.
+        yield* moveProject(
+          sourceProjectId,
+          "/workspace/changed-source",
+          "2026-09-02T00:00:00.000Z",
+        );
+        assert.isTrue((yield* maintenance.rebuild).valid);
+        const replayed = yield* orchestrator.getThreadProjection(threadId);
+        assert.deepEqual(replayed.thread, moved.thread);
+        assert.deepEqual(replayed.providerSessions, before.providerSessions);
+        assert.deepEqual(replayed.runs, before.runs);
+        assert.deepEqual(replayed.providerThreads, before.providerThreads);
+        assert.equal((yield* orchestrator.getThreadShell(threadId))?.projectId, targetProjectId);
+        assert.equal(
+          (yield* orchestrator.getThreadShell(threadId))?.executionWorkspaceRoot,
+          "/workspace/move-source",
+        );
+        assert.equal(
+          (yield* policy.resolve({ thread: replayed.thread, modelSelection })).cwd,
+          session.cwd,
+        );
+        yield* orchestrator.dispatch({
+          type: "thread.project.move",
+          commandId: CommandId.make(`${threadId}:move-back`),
+          threadId,
+          targetProjectId: sourceProjectId,
+        });
+        assert.equal(
+          (yield* orchestrator.getThreadProjection(threadId)).thread.executionWorkspaceRoot,
+          "/workspace/move-source",
+        );
+        const beforeRejection = yield* orchestrator.getThreadProjection(threadId);
+        const missingCommand = {
+          type: "thread.project.move" as const,
+          commandId: CommandId.make(`${threadId}:missing`),
+          threadId,
+          targetProjectId: ProjectId.make("project:missing"),
+        };
+        const missing = yield* orchestrator.dispatch(missingCommand).pipe(Effect.flip);
+        assert.instanceOf(missing, Orchestrator.OrchestratorDispatchError);
+        assert.deepEqual(yield* orchestrator.getThreadProjection(threadId), beforeRejection);
+        assert.deepEqual(yield* outbox.listByCommandId(missingCommand.commandId), []);
+        const rejectedEvents = yield* sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count FROM orchestration_events
+        WHERE command_id = ${missingCommand.commandId}
+      `;
+        assert.equal(rejectedEvents[0]?.count, 0);
+      }),
   );
 
   it.effect("persists linked pull requests through projection rebuilds and unlinking", () =>

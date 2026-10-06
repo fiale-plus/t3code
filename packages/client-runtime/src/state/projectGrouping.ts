@@ -71,21 +71,21 @@ export function derivePhysicalProjectKeyFromPath(environmentId: string, cwd: str
 }
 
 export function derivePhysicalProjectKey(
-  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
+  project: Pick<EnvironmentProject, "environmentId" | "id">,
 ): string {
-  return derivePhysicalProjectKeyFromPath(project.environmentId, project.workspaceRoot);
+  return scopedProjectKey(scopeProjectRef(project.environmentId, project.id));
 }
 
 export function deriveProjectGroupingOverrideKey(
   project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
 ): string {
-  return derivePhysicalProjectKey(project);
+  return derivePhysicalProjectKeyFromPath(project.environmentId, project.workspaceRoot);
 }
 
 export function getProjectOrderKey(
   project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
 ): string {
-  return derivePhysicalProjectKey(project);
+  return derivePhysicalProjectKeyFromPath(project.environmentId, project.workspaceRoot);
 }
 
 export function resolveProjectGroupingMode(

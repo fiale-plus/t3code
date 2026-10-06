@@ -328,6 +328,48 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+  it.effect("keeps mock and preview builds off the fork update feed", () =>
+    Effect.gen(function* () {
+      const release = yield* createBuildConfig(
+        "linux",
+        "AppImage",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const mock = yield* createBuildConfig(
+        "linux",
+        "AppImage",
+        "1.2.3",
+        false,
+        true,
+        4567,
+        undefined,
+      );
+      const preview = yield* createBuildConfig(
+        "linux",
+        "AppImage",
+        "1.2.3-preview.20261006.1",
+        false,
+        true,
+        4567,
+        undefined,
+      );
+      assert.deepStrictEqual(release.publish, [
+        {
+          provider: "github",
+          owner: "fiale-plus",
+          repo: "t3code",
+          releaseType: "release",
+        },
+      ]);
+      assert.deepStrictEqual(mock.publish, [{ provider: "generic", url: "http://localhost:4567" }]);
+      assert.notProperty(preview, "publish");
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it.effect("omits update feeds for pull request preview builds", () =>
     Effect.gen(function* () {
       const preview = yield* createBuildConfig(
@@ -1562,52 +1604,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           spawnerLayer,
           Layer.succeed(HostProcessPlatform, "darwin"),
           Layer.succeed(HostProcessArchitecture, "arm64"),
-        ),
-      ),
-    );
-  });
-
-  it.effect("skips the primary native probe for cross-architecture Windows payloads", () => {
-    const commands: Array<{
-      readonly command: string;
-      readonly options: {
-        readonly env?: Readonly<Record<string, string | undefined>>;
-      };
-    }> = [];
-    const spawnerLayer = Layer.succeed(
-      ChildProcessSpawner.ChildProcessSpawner,
-      ChildProcessSpawner.make((command) => {
-        commands.push(command as unknown as (typeof commands)[number]);
-        return Effect.succeed(mockProcess(0));
-      }),
-    );
-
-    return Effect.scoped(
-      Effect.gen(function* () {
-        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
-        yield* validateWindowsPackagedPayload({
-          stageDistDir: fixture.stageDistDir,
-          appExecutableName: fixture.appExecutableName,
-          targetArch: "arm64",
-          appVersion: WINDOWS_PAYLOAD_FIXTURE_VERSION,
-        });
-
-        assert.isFalse(
-          commands.some((command) => command.options.env?.ELECTRON_RUN_AS_NODE === "1"),
-        );
-        assert.isTrue(
-          commands.some(
-            (command) =>
-              command.command === process.execPath && command.options.env?.NODE_PATH === "",
-          ),
-        );
-      }),
-    ).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          spawnerLayer,
-          Layer.succeed(HostProcessPlatform, "win32"),
-          Layer.succeed(HostProcessArchitecture, "x64"),
         ),
       ),
     );

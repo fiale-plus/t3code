@@ -520,6 +520,7 @@ export async function restoreRejectedQueuedMessage(
               mode: queuedMessage.creation.workspaceMode,
               branch: queuedMessage.creation.branch,
               worktreePath: queuedMessage.creation.worktreePath,
+              executionWorkspaceRoot: queuedMessage.creation.executionWorkspaceRoot,
               ...(queuedMessage.creation.startFromOrigin !== undefined
                 ? { startFromOrigin: queuedMessage.creation.startFromOrigin }
                 : {}),
@@ -1049,6 +1050,7 @@ export function useThreadOutboxDrain(): void {
           workspaceMode: creation.workspaceMode,
           branch: creation.branch,
           worktreePath: creation.worktreePath,
+          executionWorkspaceRoot: creation.executionWorkspaceRoot,
           startFromOrigin: creation.startFromOrigin ?? false,
           worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
         }),
@@ -1240,7 +1242,8 @@ export function useThreadOutboxDrain(): void {
       // just because its project shell is not loaded.
       const creationProjectCwd =
         creation !== undefined
-          ? (findCreationProject(projects, nextQueuedMessage)?.workspaceRoot ??
+          ? (creation.executionWorkspaceRoot ??
+            findCreationProject(projects, nextQueuedMessage)?.workspaceRoot ??
             creation.projectCwd ??
             null)
           : null;

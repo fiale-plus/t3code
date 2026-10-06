@@ -67,7 +67,7 @@ export const layer: Layer.Layer<RuntimePolicyV2> = Layer.succeed(RuntimePolicyV2
     Effect.succeed({
       runtimeMode: input.thread.runtimeMode,
       interactionMode: input.thread.interactionMode,
-      cwd: input.thread.worktreePath,
+      cwd: input.thread.worktreePath ?? input.thread.executionWorkspaceRoot ?? null,
     }),
 });
 
@@ -105,6 +105,7 @@ export const layerFromProjectStore: Layer.Layer<
             : (yield* instance.snapshot.getSnapshot).supportedRuntimeModes;
         const cwd =
           input.thread.worktreePath ??
+          input.thread.executionWorkspaceRoot ??
           (yield* projects.get(input.thread.projectId).pipe(
             Effect.mapError(
               (cause) =>

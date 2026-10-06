@@ -5,6 +5,7 @@ import {
   deriveLogicalProjectKey,
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
+  deriveProjectGroupingOverrideKey,
   getProjectOrderKey,
   resolveProjectGroupingMode,
 } from "./logicalProject";
@@ -147,7 +148,7 @@ describe("environment grouping", () => {
       deriveLogicalProjectKeyFromSettings(project, {
         ...defaultGroupingSettings,
         sidebarProjectGroupingOverrides: {
-          [physicalKey]: "separate",
+          [deriveProjectGroupingOverrideKey(project)]: "separate",
         },
       }),
     ).toBe(physicalKey);
@@ -160,7 +161,7 @@ describe("environment grouping", () => {
       deriveLogicalProjectKeyFromSettings(project, {
         sidebarProjectGroupingMode: "separate",
         sidebarProjectGroupingOverrides: {
-          [derivePhysicalProjectKey(project)]: "repository",
+          [deriveProjectGroupingOverrideKey(project)]: "repository",
         },
       }),
     ).toBe(repositoryIdentity.canonicalKey);
@@ -168,22 +169,21 @@ describe("environment grouping", () => {
 
   it("reports the effective grouping mode after applying an override", () => {
     const project = makeProject({ repositoryIdentity });
-    const physicalKey = derivePhysicalProjectKey(project);
 
     expect(resolveProjectGroupingMode(project, defaultGroupingSettings)).toBe("repository");
     expect(
       resolveProjectGroupingMode(project, {
         ...defaultGroupingSettings,
         sidebarProjectGroupingOverrides: {
-          [physicalKey]: "separate",
+          [deriveProjectGroupingOverrideKey(project)]: "separate",
         },
       }),
     ).toBe("separate");
   });
 
-  it("dedupes stale project rows with the same environment and workspace path", () => {
+  it("dedupes stale registrations of the same project identity", () => {
     const duplicate = makeProject({
-      id: ProjectId.make("project-duplicate"),
+      id: ProjectId.make("project-primary"),
       workspaceRoot: "/tmp/shared-repo/",
       repositoryIdentity,
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -216,35 +216,9 @@ describe("environment grouping", () => {
     ]);
   });
 
-  it("prefers the fresher project row when duplicate stale rows are ordered first", () => {
-    const staleDuplicate = makeProject({
-      id: ProjectId.make("project-stale"),
-      workspaceRoot: "/tmp/shared-repo/",
-      repositoryIdentity,
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    });
-    const canonical = makeProject({
-      id: ProjectId.make("project-canonical"),
-      workspaceRoot: "/tmp/shared-repo",
-      repositoryIdentity,
-      updatedAt: "2026-01-02T00:00:00.000Z",
-    });
-
-    const snapshots = buildSidebarProjectSnapshots({
-      projects: [staleDuplicate, canonical],
-      settings: defaultGroupingSettings,
-      primaryEnvironmentId,
-      resolveEnvironmentLabel: () => "primary",
-    });
-
-    expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]?.memberProjects.map((project) => project.id)).toEqual([canonical.id]);
-    expect(snapshots[0]?.id).toBe(canonical.id);
-  });
-
   it("dedupes stale project rows before logical grouping", () => {
     const staleWithoutRepositoryIdentity = makeProject({
-      id: ProjectId.make("project-stale"),
+      id: ProjectId.make("project-canonical"),
       repositoryIdentity: null,
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
@@ -274,10 +248,6 @@ describe("environment grouping", () => {
       remote.id,
     ]);
     expect(snapshots[0]?.memberProjectRefs).toEqual([
-      {
-        environmentId: primaryEnvironmentId,
-        projectId: staleWithoutRepositoryIdentity.id,
-      },
       { environmentId: primaryEnvironmentId, projectId: canonical.id },
       { environmentId: remoteEnvironmentId, projectId: remote.id },
     ]);
@@ -295,7 +265,7 @@ describe("environment grouping", () => {
 
   it("routes duplicate physical project keys to the winning logical group", () => {
     const staleWithoutRepositoryIdentity = makeProject({
-      id: ProjectId.make("project-stale"),
+      id: ProjectId.make("project-canonical"),
       repositoryIdentity: null,
       updatedAt: "2026-01-01T00:00:00.000Z",
     });

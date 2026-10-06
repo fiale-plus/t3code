@@ -46,6 +46,7 @@ export function HomeRouteScreen() {
           projectId: String(thread.projectId),
           branch: thread.branch,
           worktreePath: thread.worktreePath,
+          executionWorkspaceRoot: thread.executionWorkspaceRoot,
         },
       });
     },

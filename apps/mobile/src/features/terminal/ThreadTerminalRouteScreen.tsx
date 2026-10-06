@@ -367,7 +367,7 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
     return resolveTerminalOpenLocation({
       terminalLocation: activeKnownSession?.state.summary ?? null,
       activeSessionLocation: activeKnownSession?.state.summary ?? null,
-      workspaceRoot: selectedThreadProject.workspaceRoot,
+      workspaceRoot: selectedThread.executionWorkspaceRoot ?? selectedThreadProject.workspaceRoot,
       threadShellWorktreePath: selectedThread.worktreePath ?? null,
       threadDetailWorktreePath: selectedThreadDetailWorktreePath,
     });
@@ -546,7 +546,12 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
       preview: terminal.buffer.slice(0, 160),
     });
   }, [terminal.buffer, terminal.buffer.length, terminalKey]);
-  const cwd = terminal.summary?.cwd ?? selectedThreadProject?.workspaceRoot ?? null;
+  const cwd =
+    terminal.summary?.cwd ??
+    selectedThread?.worktreePath ??
+    selectedThread?.executionWorkspaceRoot ??
+    selectedThreadProject?.workspaceRoot ??
+    null;
   const serverConfigs = useServerConfigs();
   const hostOs =
     routeEnvironmentId === null
