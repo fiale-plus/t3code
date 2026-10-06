@@ -176,7 +176,12 @@ export const make = Effect.gen(function* () {
         (thread.branch !== null || thread.branchPullRequest != null),
     );
     const groups = Map.groupBy(threads, (thread) =>
-      JSON.stringify([thread.projectId, thread.worktreePath, thread.branch]),
+      JSON.stringify([
+        thread.projectId,
+        thread.executionWorkspaceRoot,
+        thread.worktreePath,
+        thread.branch,
+      ]),
     );
 
     yield* Effect.forEach(
@@ -186,8 +191,12 @@ export const make = Effect.gen(function* () {
           const first = group[0]!;
           const project = projects.get(first.projectId);
           if (project === undefined) return finishBackfill(group);
+          const executionProject = {
+            ...project,
+            workspaceRoot: first.executionWorkspaceRoot ?? project.workspaceRoot,
+          };
           const { project: resolvedProject, repository } =
-            yield* resolveProjectForPullRequestDiscovery(project, repositoryIdentities, {
+            yield* resolveProjectForPullRequestDiscovery(executionProject, repositoryIdentities, {
               refresh: request.refresh,
             });
           if (first.branch !== null && repository === null) return finishBackfill(group);
@@ -196,7 +205,7 @@ export const make = Effect.gen(function* () {
           const cwd =
             worktreeExists && first.worktreePath !== null
               ? first.worktreePath
-              : project.workspaceRoot;
+              : executionProject.workspaceRoot;
           const detected =
             first.branch === null
               ? null
@@ -276,9 +285,12 @@ export const make = Effect.gen(function* () {
 
           if (detected !== null && first.branch !== null) {
             const current = yield* git.branchPullRequest({ cwd, branch: first.branch });
-            const currentIdentity = yield* repositoryIdentities.resolve(project.workspaceRoot, {
-              refresh: true,
-            });
+            const currentIdentity = yield* repositoryIdentities.resolve(
+              executionProject.workspaceRoot,
+              {
+                refresh: true,
+              },
+            );
             if (
               current === null ||
               current.number !== detected.number ||

@@ -38,6 +38,27 @@ Settings that are environment-wide stay read-only while a project is selected. W
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
 
+## Projects, thread moves, and forks
+
+A project is an organizational identity, not a unique repository path. Add any
+directory as a project; multiple projects may use the same directory independently.
+Use project IDs when automating operations against such projects: a directory-only
+lookup rejects ambiguous matches rather than choosing an arbitrary project.
+
+Use **Move to project** in a thread's menu, or drag a thread onto a project header
+in the **Legacy** or **Chaotic** sidebar, to change its organization within the same
+environment. Eligible drop targets highlight. If a grouped header contains multiple
+eligible projects, choose the destination in the move dialog.
+This does not move files, switch branches, change the execution checkout,
+or restart its live provider session. Terminal, Git, tools, and resumed turns retain
+the original execution directory. New unrelated threads in the destination project
+use that project's configured directory. Cross-environment moves are not supported.
+
+Forking defaults to the source thread's project and execution workspace. The fork
+dialog can select another project in the same environment; that changes organization,
+not the source checkout inherited by the fork. Worktrees remain shared until explicitly
+changed. Project settings continue to follow the thread's organizational project.
+
 ## Worktree branch names
 
 In **Settings → Source Control → Worktree branch naming**, choose a static prefix,

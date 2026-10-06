@@ -10,6 +10,9 @@ import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { useThreadShell } from "../../state/entities";
+import { ThreadProjectPicker } from "./ThreadProjectPicker";
+import type { ProjectId } from "@t3tools/contracts";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import {
@@ -326,6 +329,10 @@ function AssistantForkButton(props: {
   const forkFromRun = useAtomCommand(threadEnvironment.forkFromRun, "fork from response");
   const navigation = useNavigation();
   const [busy, setBusy] = useState(false);
+  const [choosingProject, setChoosingProject] = useState(false);
+  const sourceThread = useThreadShell(
+    scopeThreadRef(props.environmentId, props.projectedItem.sourceThreadId),
+  );
   const canFork = canForkProjectedAssistantItem({
     projectedItem: props.projectedItem,
     capabilities: support.providerSession?.capabilities,
@@ -334,55 +341,69 @@ function AssistantForkButton(props: {
 
   if (!canFork || runId === null) return null;
 
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Fork from this response"
-      disabled={busy}
-      onPress={() => {
-        const targetThreadId = ThreadId.make(uuidv4());
-        setBusy(true);
-        void Haptics.selectionAsync();
-        void forkFromRun({
+  const fork = (targetProjectId: ProjectId) => {
+    setChoosingProject(false);
+    const targetThreadId = ThreadId.make(uuidv4());
+    setBusy(true);
+    void Haptics.selectionAsync();
+    void forkFromRun({
+      environmentId: props.environmentId,
+      input: {
+        sourceThreadId: props.projectedItem.sourceThreadId,
+        targetThreadId,
+        runId,
+        targetProjectId,
+        title: `${props.sourceTitle} fork`,
+        creationSource: "mobile",
+      },
+    })
+      .then(async (result) => {
+        if (result._tag !== "Success") return;
+        const targetThreadReady = await waitForThreadShell(props.environmentId, targetThreadId);
+        if (!targetThreadReady) {
+          Alert.alert(
+            "Fork created",
+            "Its thread data did not reach this client. Reconnect and try opening it from the thread list.",
+          );
+          return;
+        }
+        navigation.navigate("Thread", {
           environmentId: props.environmentId,
-          input: {
-            sourceThreadId: props.projectedItem.sourceThreadId,
-            targetThreadId,
-            runId,
-            title: `${props.sourceTitle} fork`,
-            creationSource: "mobile",
-          },
-        })
-          .then(async (result) => {
-            if (result._tag !== "Success") return;
-            const targetThreadReady = await waitForThreadShell(props.environmentId, targetThreadId);
-            if (!targetThreadReady) {
-              Alert.alert(
-                "Fork created",
-                "Its thread data did not reach this client. Reconnect and try opening it from the thread list.",
-              );
-              return;
-            }
-            navigation.navigate("Thread", {
-              environmentId: props.environmentId,
-              threadId: targetThreadId,
-            });
-          })
-          .finally(() => setBusy(false));
-      }}
-      className="h-7 w-7 items-center justify-center disabled:opacity-40"
-    >
-      {busy ? (
-        <ActivityIndicator size="small" />
-      ) : (
-        <SymbolView
-          name="arrow.triangle.branch"
-          size={13}
-          tintColor={props.iconColor}
-          type="monochrome"
+          threadId: targetThreadId,
+        });
+      })
+      .finally(() => setBusy(false));
+  };
+  return (
+    <>
+      {choosingProject && sourceThread && (
+        <ThreadProjectPicker
+          environmentId={props.environmentId}
+          sourceProjectId={sourceThread.projectId}
+          action="Fork"
+          onClose={() => setChoosingProject(false)}
+          onSelect={fork}
         />
       )}
-    </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Fork from this response"
+        disabled={busy || !sourceThread}
+        onPress={() => setChoosingProject(true)}
+        className="h-7 w-7 items-center justify-center disabled:opacity-40"
+      >
+        {busy ? (
+          <ActivityIndicator size="small" />
+        ) : (
+          <SymbolView
+            name="arrow.triangle.branch"
+            size={13}
+            tintColor={props.iconColor}
+            type="monochrome"
+          />
+        )}
+      </Pressable>
+    </>
   );
 }
 

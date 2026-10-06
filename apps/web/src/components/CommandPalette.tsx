@@ -116,7 +116,6 @@ import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib
 import {
   appendBrowsePathSegment,
   ensureBrowseDirectoryPath,
-  findProjectByPath,
   getBrowseDirectoryPath,
   hasTrailingPathSeparator,
   inferProjectTitleFromPath,
@@ -2009,7 +2008,7 @@ function OpenCommandPaletteDialog(props: {
           environmentId,
           input: {
             instanceId: thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId,
-            cwd: thread.worktreePath ?? project.workspaceRoot,
+            cwd: thread.worktreePath ?? thread.executionWorkspaceRoot ?? project.workspaceRoot,
             fresh: true,
           },
         });
@@ -2398,43 +2397,6 @@ function OpenCommandPaletteDialog(props: {
       const cwd = resolveProjectPathForDispatch(rawCwd, input.currentProjectCwd);
       if (cwd.length === 0) return;
 
-      const existing = findProjectByPath(
-        projects.filter((project) => project.environmentId === input.environmentId),
-        cwd,
-      );
-      if (existing) {
-        const latestThread = getLatestThreadForProject(
-          threads.filter((thread) => thread.environmentId === existing.environmentId),
-          existing.id,
-          clientSettings.sidebarThreadSortOrder,
-        );
-        if (latestThread && latestThread.settledOverride !== "settled") {
-          await navigate({
-            to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(
-              scopeThreadRef(latestThread.environmentId, latestThread.id),
-            ),
-          });
-        } else {
-          const navigationResult = await settlePromise(() =>
-            handleNewThread(scopeProjectRef(existing.environmentId, existing.id)),
-          );
-          if (navigationResult._tag === "Failure") {
-            const error = squashAtomCommandFailure(navigationResult);
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Failed to open project",
-                description: error instanceof Error ? error.message : "An error occurred.",
-              }),
-            );
-            return;
-          }
-        }
-        setOpen(false);
-        return;
-      }
-
       const projectId = newProjectId();
       const createResult = await createProject({
         environmentId: input.environmentId,
@@ -2476,18 +2438,7 @@ function OpenCommandPaletteDialog(props: {
       }
       setOpen(false);
     },
-    [
-      handleNewThread,
-      createProject,
-      environments,
-      navigate,
-      primaryEnvironmentId,
-      projects,
-      providers,
-      setOpen,
-      clientSettings.sidebarThreadSortOrder,
-      threads,
-    ],
+    [handleNewThread, createProject, environments, primaryEnvironmentId, providers, setOpen],
   );
 
   const handleAddProject = useCallback(

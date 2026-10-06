@@ -97,6 +97,7 @@ export function shouldPublishAgentAwarenessEvent(
     case "thread.unarchived":
     case "thread.deleted":
     case "thread.metadata-updated":
+    case "thread.project-moved":
     case "thread.pull-request-synced":
     case "thread.model-selection-updated":
     case "thread.provider-switched":

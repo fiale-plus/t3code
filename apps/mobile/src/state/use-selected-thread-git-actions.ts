@@ -45,7 +45,8 @@ export function useSelectedThreadGitActions() {
     { reportFailure: false },
   );
 
-  const selectedThreadGitRootCwd = selectedThreadProject?.workspaceRoot ?? null;
+  const selectedThreadGitRootCwd =
+    selectedThread?.executionWorkspaceRoot ?? selectedThreadProject?.workspaceRoot ?? null;
   const branchTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
@@ -268,7 +269,7 @@ export function useSelectedThreadGitActions() {
           const result = await createWorktree({
             environmentId: thread.environmentId,
             input: {
-              cwd: project.workspaceRoot,
+              cwd: thread.executionWorkspaceRoot ?? project.workspaceRoot,
               refName: nextWorktree.baseBranch,
               newRefName: sanitizeFeatureBranchName(nextWorktree.newBranch),
               path: null,

@@ -34,6 +34,24 @@ credentials and skills remain managed by the installed agent or its wrapper. Mod
 options come from ACP, including model IDs that contain JSON. T3 Code launches the executable directly
 without expanding shell expressions.
 
+### Oh My Pi (OMP)
+
+Install and authenticate OMP on the server machine, then add a **Local ACP command**:
+
+- Executable: `omp` (or its absolute path, such as `/opt/homebrew/bin/omp`).
+- Arguments: one row containing `acp`.
+- Label: `OMP`; instance ID: `omp`.
+
+OMP manages its own credentials, models, tools, and session files. Select a model
+reported by OMP, such as `openai-codex/gpt-6.1-sol` when your account supports it.
+Do not configure an unrelated model provider as a substitute.
+
+The local fork was smoke-tested with OMP 18.6.1: model discovery, streamed responses,
+shell tool output, a move during a running turn, forks into another project,
+cancellation, and session stop/resume. Moves retain the execution directory even
+when the destination points elsewhere. Approval prompts were not observed in this
+configuration; do not claim that path validated without an agent-issued request.
+
 ## Where agents run
 
 Registry agents always run on the machine that hosts your T3 Code server. That stays true when you

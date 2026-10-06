@@ -1195,6 +1195,33 @@ describe("composerDraftStore review comments", () => {
   });
 });
 
+describe("draft execution workspace", () => {
+  beforeEach(resetComposerDraftStore);
+  it("preserves an independent execution root through updates and persistence", () => {
+    const projectRef = scopeProjectRef(TEST_ENVIRONMENT_ID, ProjectId.make("organized-project"));
+    const draftId = DraftId.make("pinned-workspace-draft");
+    const store = useComposerDraftStore.getState();
+    store.setLogicalProjectDraftThreadId(scopedProjectKey(projectRef), projectRef, draftId, {
+      threadId: ThreadId.make("pinned-workspace-thread"),
+      branch: "feature",
+      worktreePath: null,
+      executionWorkspaceRoot: "/source/workspace",
+    });
+    store.setDraftThreadContext(draftId, { branch: "other-feature" });
+    const merge = useComposerDraftStore.persist.getOptions().merge!;
+    const restored = merge(
+      JSON.parse(
+        JSON.stringify(partializeComposerDraftStoreState(useComposerDraftStore.getState())),
+      ),
+      useComposerDraftStore.getInitialState(),
+    );
+    expect(restored.draftThreadsByThreadKey[draftId]?.executionWorkspaceRoot).toBe(
+      "/source/workspace",
+    );
+    expect(restored.draftThreadsByThreadKey[draftId]?.worktreePath).toBeNull();
+  });
+});
+
 describe("composerDraftStore thread contexts", () => {
   const threadId = ThreadId.make("thread-with-context");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);

@@ -153,7 +153,16 @@ export const make = Effect.gen(function* () {
     const active = yield* projections.getShellSnapshot();
     const archived = yield* projections.getShellSnapshot({ location: "archive" });
     const projects = yield* projectStore.listShells();
-    return { projects, threads: [...active.threads, ...archived.threads] };
+    const threads = [...active.threads, ...archived.threads];
+    const protectedRoots = [
+      ...projects,
+      ...threads.flatMap((thread) =>
+        thread.executionWorkspaceRoot === undefined
+          ? []
+          : [{ workspaceRoot: thread.executionWorkspaceRoot }],
+      ),
+    ];
+    return { projects, threads, protectedRoots };
   });
 
   // Local threads under another project need not have a worktreePath of their own.
@@ -225,9 +234,12 @@ export const make = Effect.gen(function* () {
       if (!worktreeCleanupEnabled(settings)) continue;
       const worktreePath = path.resolve(thread.worktreePath!);
       const deleted = "workspaceRoot" in thread;
-      const project = deleted
-        ? { workspaceRoot: thread.workspaceRoot }
-        : snapshot.projects.find((entry) => entry.id === thread.projectId);
+      const workspaceRoot =
+        thread.executionWorkspaceRoot ??
+        (deleted
+          ? thread.workspaceRoot
+          : snapshot.projects.find((entry) => entry.id === thread.projectId)?.workspaceRoot);
+      const project = workspaceRoot === undefined ? undefined : { workspaceRoot };
       if (
         project === undefined ||
         (!deleted && !storageCleanupThreadIdle(thread, now)) ||
@@ -242,7 +254,7 @@ export const make = Effect.gen(function* () {
         const realParent = yield* fs.realPath(path.dirname(worktreePath));
         if (realPath !== path.join(realParent, path.basename(worktreePath))) return;
         if (!roots.some((root) => inside(root, realPath))) return;
-        if (yield* containsProjectRoot(worktreePath, [project, ...snapshot.projects])) return;
+        if (yield* containsProjectRoot(worktreePath, [project, ...snapshot.protectedRoots])) return;
         // A linked worktree has a .git file. Never remove a main checkout.
         if ((yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File") return;
         const status = yield* git.statusDetailsLocal(worktreePath);
@@ -309,7 +321,8 @@ export const make = Effect.gen(function* () {
         // Re-read after Git/host calls so a queued turn, resumed session or new
         // thread sharing this path cancels the removal.
         const latestSnapshot = yield* readThreads();
-        if (yield* containsProjectRoot(worktreePath, [project, ...latestSnapshot.projects])) return;
+        if (yield* containsProjectRoot(worktreePath, [project, ...latestSnapshot.protectedRoots]))
+          return;
         const latest = latestSnapshot.threads.filter(
           (entry) =>
             entry.worktreePath !== null && path.resolve(entry.worktreePath) === worktreePath,

@@ -465,16 +465,17 @@ export const layer: Layer.Layer<
             Effect.map(Option.getOrUndefined),
             Effect.orElseSucceed(() => undefined),
           );
-          if (project !== undefined) {
+          const workspaceRoot = projection.thread.executionWorkspaceRoot ?? project?.workspaceRoot;
+          if (workspaceRoot !== undefined) {
             yield* Effect.logWarning("provider turn start recreating missing worktree", {
               threadId: projection.thread.id,
               worktreePath,
               branch,
             });
-            yield* gitWorkflow.pruneWorktrees({ cwd: project.workspaceRoot }).pipe(
+            yield* gitWorkflow.pruneWorktrees({ cwd: workspaceRoot }).pipe(
               Effect.andThen(
                 gitWorkflow.createWorktree({
-                  cwd: project.workspaceRoot,
+                  cwd: workspaceRoot,
                   refName: branch,
                   path: worktreePath,
                 }),

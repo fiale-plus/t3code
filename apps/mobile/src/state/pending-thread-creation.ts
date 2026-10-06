@@ -154,6 +154,7 @@ export function pendingThreadCreationShell(
     branch: creation.branch,
     pullRequests: [],
     worktreePath: creation.workspaceMode === "worktree" ? null : creation.worktreePath,
+    executionWorkspaceRoot: creation.executionWorkspaceRoot,
     linkedPullRequest: null,
     branchPullRequest: null,
     lineage: { rootThreadId: message.threadId, parentThreadId: null, relationshipToParent: null },

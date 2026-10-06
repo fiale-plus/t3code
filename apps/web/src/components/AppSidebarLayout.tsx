@@ -25,7 +25,8 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import { useEnvironmentIdentificationMode, useSidebarMode } from "../hooks/useSettings";
+import { MoveThreadDialogHost } from "./MoveThreadDialog";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
@@ -218,7 +219,7 @@ function ProjectProjectionRetention() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const legacySidebarEnabled = useLegacySidebarEnabled();
+  const sidebarMode = useSidebarMode();
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
@@ -328,8 +329,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               <SidebarChromeHeader isElectron={isElectron} />
               <SettingsSidebarNav pathname={pathname} />
             </>
-          ) : legacySidebarEnabled ? (
+          ) : sidebarMode === "legacy" ? (
             <LegacyThreadSidebar />
+          ) : sidebarMode === "chaotic" ? (
+            <LegacyThreadSidebar chaotic />
           ) : (
             <ThreadSidebar />
           )}
@@ -337,6 +340,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         </Sidebar>
         {children}
         <SidebarControl />
+        <MoveThreadDialogHost />
         <NavigationHistoryShortcuts />
         <MainAppLocationTracker />
       </SidebarProvider>

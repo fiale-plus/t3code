@@ -170,6 +170,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "projectId"
   | "branch"
   | "worktreePath"
+  | "executionWorkspaceRoot"
   | "pullRequests"
   | "linkedPullRequest"
   | "branchPullRequest"
@@ -650,6 +651,7 @@ export function applyToProjection(
 
   switch (event.type) {
     case "thread.created":
+    case "thread.project-moved":
     case "thread.archived":
     case "thread.unarchived":
     case "thread.deleted":
@@ -1400,6 +1402,9 @@ export function threadShellFromProjection(
     interactionMode: projection.thread.interactionMode,
     branch: projection.thread.branch,
     worktreePath: projection.thread.worktreePath,
+    ...(projection.thread.executionWorkspaceRoot === undefined
+      ? {}
+      : { executionWorkspaceRoot: projection.thread.executionWorkspaceRoot }),
     pullRequests: threadPullRequestsOf(projection.thread),
     ...(projection.thread.linkedPullRequest === undefined
       ? {}
@@ -1668,6 +1673,9 @@ function shellFromState(input: {
     interactionMode: input.state.thread.interactionMode,
     branch: input.state.thread.branch,
     worktreePath: input.state.thread.worktreePath,
+    ...(input.state.thread.executionWorkspaceRoot === undefined
+      ? {}
+      : { executionWorkspaceRoot: input.state.thread.executionWorkspaceRoot }),
     pullRequests: threadPullRequestsOf(input.state.thread),
     ...(input.state.thread.linkedPullRequest === undefined
       ? {}
@@ -1754,6 +1762,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       Effect.gen(function* () {
         switch (event.type) {
           case "thread.created":
+          case "thread.project-moved":
           case "thread.archived":
           case "thread.unarchived":
           case "thread.deleted":
@@ -2585,6 +2594,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         }
 
         if (
+          event.type !== "thread.project-moved" &&
           event.type !== "thread.created" &&
           event.type !== "thread.archived" &&
           event.type !== "thread.unarchived" &&

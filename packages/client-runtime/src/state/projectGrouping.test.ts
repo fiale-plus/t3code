@@ -6,6 +6,7 @@ import { chooseLoadBalancedEnvironment } from "../load-balancing.ts";
 import {
   buildProjectGroups,
   derivePhysicalProjectKey,
+  deriveProjectGroupingOverrideKey,
   type ProjectGroupingSettings,
 } from "./projectGrouping.ts";
 
@@ -217,7 +218,7 @@ describe("buildProjectGroups", () => {
     const groups = buildProjectGroups({
       projects: [first, second, third],
       settings: settings("repository", {
-        [derivePhysicalProjectKey(second)]: "separate",
+        [deriveProjectGroupingOverrideKey(second)]: "separate",
       }),
     });
 
@@ -229,8 +230,20 @@ describe("buildProjectGroups", () => {
     ]);
   });
 
-  it("dedupes stale registrations at one physical path using the freshest project", () => {
-    const stale = makeProject("stale", "/work/t3code", {
+  it("keeps distinct same-root project identities separate in Chaotic grouping", () => {
+    const first = makeProject("first", "/work/shared");
+    const second = makeProject("second", "/work/shared");
+    expect(derivePhysicalProjectKey(first)).not.toBe(derivePhysicalProjectKey(second));
+    const groups = buildProjectGroups({
+      projects: [first, second],
+      settings: settings("separate"),
+    });
+    expect(groups).toHaveLength(2);
+    expect(groups.map((group) => group.representative.id)).toEqual(["first", "second"]);
+  });
+
+  it("dedupes registrations of one project identity using the freshest project", () => {
+    const stale = makeProject("fresh", "/work/t3code", {
       repositoryIdentity: null,
       updatedAt: "2026-07-01T00:00:00.000Z",
     });
@@ -245,11 +258,11 @@ describe("buildProjectGroups", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.members).toHaveLength(1);
     expect(groups[0]?.representative.id).toBe("fresh");
-    expect(groups[0]?.memberProjectRefs).toHaveLength(2);
+    expect(groups[0]?.memberProjectRefs).toHaveLength(1);
   });
 
   it("uses repository identity from a duplicate registration when the winner lacks it", () => {
-    const identified = makeProject("identified", "/work/t3code", {
+    const identified = makeProject("fresh", "/work/t3code", {
       updatedAt: "2026-07-01T00:00:00.000Z",
     });
     const freshUnidentified = makeProject("fresh", "/work/t3code/", {
@@ -273,7 +286,7 @@ describe("buildProjectGroups", () => {
       name: "old-repository",
       displayName: "Old Repository",
     };
-    const stale = makeProject("stale", "/work/t3code", {
+    const stale = makeProject("fresh", "/work/t3code", {
       repositoryIdentity: staleIdentity,
       updatedAt: "2026-07-01T00:00:00.000Z",
     });
@@ -297,11 +310,11 @@ describe("buildProjectGroups", () => {
       name: "old-repository",
       displayName: "Old Repository",
     };
-    const staleIdentified = makeProject("stale-identified", "/work/t3code", {
+    const staleIdentified = makeProject("winner", "/work/t3code", {
       repositoryIdentity: staleIdentity,
       updatedAt: "2026-07-01T00:00:00.000Z",
     });
-    const freshIdentified = makeProject("fresh-identified", "/work/t3code/", {
+    const freshIdentified = makeProject("winner", "/work/t3code/", {
       updatedAt: "2026-07-02T00:00:00.000Z",
     });
     const winner = makeProject("winner", "/work/t3code", {

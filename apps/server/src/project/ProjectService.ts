@@ -88,6 +88,7 @@ export class ProjectOperationError extends Schema.TaggedError<ProjectOperationEr
     operation: Schema.Literals([
       "normalize-workspace",
       "read-project",
+      "resolve-workspace",
       "list-projects",
       "list-threads",
       "delete-thread",
@@ -153,10 +154,8 @@ export const make = Effect.gen(function* () {
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
-  // Commands for one project run in order. Commands that claim a workspace root
-  // also hold that root, so two projects cannot both claim it.
+  // Organizational projects may share a workspace; only project identity is serialized.
   const projectLocks = yield* KeyedLock.make<ProjectId>();
-  const workspaceLocks = yield* KeyedLock.make<string>();
 
   const toProject = (
     row: ProjectStore.ProjectRow,
@@ -223,24 +222,15 @@ export const make = Effect.gen(function* () {
     const { projectId } = command;
     const dispatchError = (cause: unknown) =>
       new ProjectOperationError({ operation: "dispatch-project-command", projectId, cause });
-    const workspaceRoot = command.type === "project.delete" ? undefined : command.workspaceRoot;
     const planAndCommit = Effect.gen(function* () {
       const project = Option.getOrUndefined(yield* readRow(projectId, { includeDeleted: true }));
-      const workspaceOwner =
-        workspaceRoot === undefined
-          ? undefined
-          : Option.getOrUndefined(
-              yield* projects
-                .findActiveByWorkspaceRoot(workspaceRoot)
-                .pipe(Effect.mapError(dispatchError)),
-            );
       const now = yield* DateTime.now;
       const eventId = yield* idAllocator.allocate
         .event({ commandId: command.commandId })
         .pipe(Effect.mapError(dispatchError));
       const planned = planProjectCommand({
         command,
-        state: { project, workspaceOwner },
+        state: { project },
         eventId,
         now,
       });
@@ -263,12 +253,7 @@ export const make = Effect.gen(function* () {
       });
     });
     const receipt = yield* projectLocks
-      .withLock(
-        projectId,
-        workspaceRoot === undefined
-          ? planAndCommit
-          : workspaceLocks.withLock(workspaceRoot, planAndCommit),
-      )
+      .withLock(projectId, planAndCommit)
       .pipe(Effect.mapError(dispatchError));
     if (receipt.projectId !== projectId || receipt.commandType !== command.type) {
       return yield* dispatchError(
@@ -320,13 +305,20 @@ export const make = Effect.gen(function* () {
     const normalized = yield* normalizeWorkspaceRoot({ workspaceRoot });
     const row = yield* (
       options?.includeDeleted === true
-        ? projects
-            .list({ includeDeleted: true })
-            .pipe(
-              Effect.map((rows) =>
-                Option.fromUndefinedOr(rows.find((row) => row.workspaceRoot === normalized)),
-              ),
-            )
+        ? projects.list({ includeDeleted: true }).pipe(
+            Effect.flatMap((rows) => {
+              const matches = rows.filter((row) => row.workspaceRoot === normalized);
+              return matches.length > 1
+                ? Effect.fail(
+                    new ProjectOperationError({
+                      operation: "resolve-workspace",
+                      workspaceRoot: normalized,
+                      cause: "Multiple projects share this workspace; select a project by ID.",
+                    }),
+                  )
+                : Effect.succeed(Option.fromUndefinedOr(matches[0]));
+            }),
+          )
         : projects.findActiveByWorkspaceRoot(normalized)
     ).pipe(
       Effect.mapError((cause) => new ProjectOperationError({ operation: "list-projects", cause })),

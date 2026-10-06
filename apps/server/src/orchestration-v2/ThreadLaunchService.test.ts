@@ -289,6 +289,49 @@ function waitUntil<E, R>(predicate: () => Effect.Effect<boolean, E, R>): Effect.
   });
 }
 
+it.effect.each(["root", "worktree"] as const)(
+  "launches in the inherited execution root rather than the organizational project: %s",
+  (strategy) =>
+    Effect.gen(function* () {
+      const setupEntered = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(Effect.andThen(Effect.never)),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const launched = yield* launches.launch({
+          ...launchInput({
+            command: `command:launch:inherited:${strategy}`,
+            thread: `thread:launch:inherited:${strategy}`,
+            workspace:
+              strategy === "root"
+                ? { type: "root", branch: "source-branch" }
+                : { type: "worktree", baseRef: "main", branch: "source-branch" },
+          }),
+          executionWorkspaceRoot: "/source-repository",
+        });
+        yield* Deferred.await(setupEntered);
+        const projection = yield* threads.getThreadProjection(launched.threadId);
+        assert.equal(projection.thread.projectId, projectId);
+        assert.equal(projection.thread.executionWorkspaceRoot, "/source-repository");
+        assert.equal(
+          (yield* encodeThreadProjection(projection)).thread.executionWorkspaceRoot,
+          "/source-repository",
+        );
+        assert.equal(harness.runSetup.mock.calls[0]?.[0].projectCwd, "/source-repository");
+        assert.equal(
+          harness.runSetup.mock.calls[0]?.[0].worktreePath,
+          strategy === "root" ? "/source-repository" : "/repo-worktrees/feature",
+        );
+        if (strategy === "worktree") {
+          assert.equal(harness.createWorktree.mock.calls[0]?.[0].cwd, "/source-repository");
+        }
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
 it.effect.each(
   (["new", "existing"] as const).flatMap((target) =>
     (["user", "agent"] as const).map((createdBy) => ({ target, createdBy })),

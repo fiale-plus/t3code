@@ -539,6 +539,10 @@ export const BranchToolbar = memo(function BranchToolbar({
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
   const activeProject = useProject(activeProjectRef);
+  const executionWorkspaceRoot =
+    serverThread?.executionWorkspaceRoot ??
+    draftThread?.executionWorkspaceRoot ??
+    activeProject?.workspaceRoot;
   const hasActiveThread = serverThread !== null || draftThread !== null;
   const activeWorktreePath = forceNewWorktree
     ? null
@@ -623,7 +627,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             envLocked={envModeLocked}
             effectiveEnvMode={effectiveEnvMode}
             activeWorktreePath={activeWorktreePath}
-            workspaceRoot={activeProject.workspaceRoot}
+            workspaceRoot={executionWorkspaceRoot ?? activeProject.workspaceRoot}
             onEnvModeChange={onEnvModeChange}
           />
         ) : null}

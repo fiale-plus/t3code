@@ -200,7 +200,7 @@ it.layer(layerTest)("ProjectService", (it) => {
     }),
   );
 
-  it.effect("rejects active workspace collisions", () =>
+  it.effect("creates independent projects sharing a root and rejects ambiguous root lookup", () =>
     Effect.gen(function* () {
       const service = yield* ProjectService.ProjectService;
       yield* TestClock.setTime(Date.parse("2026-06-20T10:00:00.000Z"));
@@ -210,15 +210,44 @@ it.layer(layerTest)("ProjectService", (it) => {
         title: "First",
         workspaceRoot: "/work/shared",
       });
-      const error = yield* service
-        .create({
-          commandId: CommandId.make("command:collision:second"),
-          projectId: ProjectId.make("project:collision:second"),
-          title: "Second",
-          workspaceRoot: "/work/shared",
-        })
-        .pipe(Effect.flip);
-      assert.equal(error._tag, "ProjectConflictError");
+      const secondId = ProjectId.make("project:collision:second");
+      const second = yield* service.create({
+        commandId: CommandId.make("command:collision:second"),
+        projectId: secondId,
+        title: "Second",
+        workspaceRoot: "/work/shared",
+      });
+      assert.equal(second.id, secondId);
+      assert.equal(
+        (yield* service.getByWorkspaceRoot("/work/shared").pipe(Effect.flip))._tag,
+        "ProjectOperationError",
+      );
+      assert.equal(
+        (yield* service
+          .getByWorkspaceRoot("/work/shared", { includeDeleted: true })
+          .pipe(Effect.flip))._tag,
+        "ProjectOperationError",
+      );
+      assert.equal(
+        (yield* service
+          .bootstrap({
+            commandId: CommandId.make("command:collision:bootstrap"),
+            projectId: ProjectId.make("project:collision:third"),
+            title: "Third",
+            workspaceRoot: "/work/shared",
+          })
+          .pipe(Effect.flip))._tag,
+        "ProjectOperationError",
+      );
+      yield* service.delete({
+        commandId: CommandId.make("command:collision:delete"),
+        projectId: ProjectId.make("project:collision:first"),
+      });
+      assert.equal(Option.getOrThrow(yield* service.getById(secondId)).title, "Second");
+      assert.equal(
+        Option.getOrThrow(yield* service.getByWorkspaceRoot("/work/shared")).id,
+        secondId,
+      );
     }),
   );
 
@@ -341,7 +370,7 @@ it.layer(layerTest)("ProjectService", (it) => {
     }),
   );
 
-  it.effect("rejects a workspace another active project holds", () =>
+  it.effect("allows updating a project to another project's workspace", () =>
     Effect.gen(function* () {
       const service = yield* ProjectService.ProjectService;
       const other = ProjectId.make("project:conflict:mover");
@@ -357,22 +386,20 @@ it.layer(layerTest)("ProjectService", (it) => {
         title: "Mover",
         workspaceRoot: "/work/conflict-mover",
       });
-      const move = yield* service
-        .update({
-          commandId: CommandId.make("command:conflict:move"),
-          projectId: other,
-          workspaceRoot: "/work/conflict",
-        })
-        .pipe(Effect.flip);
-      assert.equal(move._tag, "ProjectConflictError");
+      const move = yield* service.update({
+        commandId: CommandId.make("command:conflict:move"),
+        projectId: other,
+        workspaceRoot: "/work/conflict",
+      });
+      assert.equal(move.workspaceRoot, "/work/conflict");
       assert.equal(
         Option.getOrThrow(yield* service.getById(other)).workspaceRoot,
-        "/work/conflict-mover",
+        "/work/conflict",
       );
     }),
   );
 
-  it.effect("replays a workspace conflict after the workspace frees up", () =>
+  it.effect("replays shared-root creation independently of deleting a sibling project", () =>
     Effect.gen(function* () {
       const service = yield* ProjectService.ProjectService;
       const holderId = ProjectId.make("project:freed:holder");
@@ -388,18 +415,14 @@ it.layer(layerTest)("ProjectService", (it) => {
         title: "Claim",
         workspaceRoot: "/work/freed",
       };
-      const first = yield* service.create(claim).pipe(Effect.flip);
+      const first = yield* service.create(claim);
       yield* service.delete({
         commandId: CommandId.make("command:freed:delete"),
         projectId: holderId,
       });
-      // A fresh plan would now succeed; the recorded conflict still answers.
-      const replayed = yield* service.create(claim).pipe(Effect.flip);
-      assert.deepEqual(replayed, first);
-      assert.instanceOf(replayed, ProjectService.ProjectConflictError);
-      assert.isTrue(
-        Option.isNone(yield* service.getById(claim.projectId, { includeDeleted: true })),
-      );
+      const replayed = yield* service.create(claim);
+      assert.equal(replayed.id, first.id);
+      assert.equal(Option.getOrThrow(yield* service.getById(claim.projectId)).id, first.id);
     }),
   );
 
@@ -699,7 +722,7 @@ it.effect("invalidates workspace-derived metadata when a project moves", () =>
   }),
 );
 
-it.effect("serializes two projects claiming the same workspace root", () =>
+it.effect("creates projects sharing a root independently while another create awaits commit", () =>
   Effect.gen(function* () {
     const eventSink = yield* EventSink.EventSinkV2;
     const firstReachedCommit = yield* Deferred.make<void>();
@@ -727,15 +750,14 @@ it.effect("serializes two projects claiming the same workspace root", () =>
       });
     const first = yield* claim("first").pipe(Effect.forkChild({ startImmediately: true }));
     yield* Deferred.await(firstReachedCommit);
-    const second = yield* claim("second").pipe(
-      Effect.flip,
-      Effect.forkChild({ startImmediately: true }),
-    );
-    yield* Effect.yieldNow;
-    assert.isUndefined(second.pollUnsafe());
+    const second = yield* claim("second");
+    assert.equal(second.id, "project:race:second");
     yield* Deferred.succeed(releaseFirst, undefined);
     assert.equal((yield* Fiber.join(first)).id, "project:race:first");
-    assert.equal((yield* Fiber.join(second))._tag, "ProjectConflictError");
+    assert.equal(
+      (yield* service.getByWorkspaceRoot("/work/race").pipe(Effect.flip))._tag,
+      "ProjectOperationError",
+    );
   }).pipe(Effect.provide(layerProjectServiceDependencies)),
 );
 

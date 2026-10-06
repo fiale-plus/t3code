@@ -47,7 +47,7 @@ const script = (id: string): ProjectScript => ({
 const plan = (command: ProjectCommand, state: Partial<ProjectCommandState> = {}) =>
   planProjectCommand({
     command,
-    state: { project: undefined, workspaceOwner: undefined, ...state },
+    state: { project: undefined, ...state },
     eventId: EventId.make("event:planned"),
     now,
   });
@@ -179,41 +179,69 @@ describe("planProjectCommand", () => {
     }
   });
 
-  it("rejects a workspace root held by another active project", () => {
-    const owner = row({
-      projectId: ProjectId.make("project-existing"),
-      workspaceRoot: "/tmp/project",
-    });
-    const create = failureOf(
-      plan(
-        {
+  it("plans distinct project identities with the same directory independently", () => {
+    const workspaceRoot = "/tmp/project";
+    const firstProjectId = ProjectId.make("project-first-root");
+    const secondProjectId = ProjectId.make("project-second-root");
+    const events = [firstProjectId, secondProjectId].map((id) =>
+      Result.getOrThrow(
+        plan({
           type: "project.create",
-          commandId: CommandId.make("cmd-duplicate-root"),
-          projectId: ProjectId.make("project-duplicate-root"),
-          title: "Duplicate",
-          workspaceRoot: "/tmp/project",
-        },
-        { workspaceOwner: owner },
+          commandId: CommandId.make(`cmd-create:${id}`),
+          projectId: id,
+          title: id,
+          workspaceRoot,
+        }),
       ),
     );
-    assert.equal(create._tag, "ProjectWorkspaceConflictError");
-    assert.equal(
-      create.message,
-      "Active project 'project-existing' already exists for workspace root '/tmp/project'.",
+    assert.deepEqual(
+      events.map((event) => event.aggregateId),
+      [firstProjectId, secondProjectId],
     );
-    const move = failureOf(
+    assert.deepEqual(
+      events.map((event) => event.payload.projectId),
+      [firstProjectId, secondProjectId],
+    );
+    for (const event of events) {
+      assert.deepInclude(event.payload, { workspaceRoot });
+    }
+
+    const updated = Result.getOrThrow(
       plan(
         {
           type: "project.meta.update",
-          commandId: CommandId.make("cmd-move-root"),
-          projectId,
-          workspaceRoot: "/tmp/project",
+          commandId: CommandId.make("cmd-update-second-root"),
+          projectId: secondProjectId,
+          title: "Only the second project",
+          workspaceRoot,
         },
-        { project: row(), workspaceOwner: owner },
+        { project: row({ projectId: secondProjectId, workspaceRoot }) },
       ),
     );
-    assert.equal(move._tag, "ProjectWorkspaceConflictError");
+    assert.equal(updated.aggregateId, secondProjectId);
+    assert.deepInclude(updated.payload, {
+      projectId: secondProjectId,
+      title: "Only the second project",
+      workspaceRoot,
+    });
   });
+
+  it.each(["/tmp/arbitrary directory", "/tmp/not-a-git-repository", "/"])(
+    "plans arbitrary project directories without repository registration: %s",
+    (workspaceRoot) => {
+      const created = payloadOf(
+        plan({
+          type: "project.create",
+          commandId: CommandId.make("cmd-arbitrary-directory"),
+          projectId,
+          title: "Arbitrary directory",
+          workspaceRoot,
+        }),
+      );
+      assert.equal(created.workspaceRoot, workspaceRoot);
+      assert.equal(payloadOf(update({ workspaceRoot })).workspaceRoot, workspaceRoot);
+    },
+  );
 
   it("requires the project to exist, and to be absent on create", () => {
     const create: ProjectCommand = {

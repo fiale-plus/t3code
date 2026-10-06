@@ -115,6 +115,12 @@ export const layer = ThreadToolkit.toLayer({
             : result.matches.filter((match) => match.projectId === projectId),
       };
     }),
+  t3_thread_move: (input) =>
+    dispatch(input.threadId, (common) => ({
+      type: "thread.project.move",
+      ...common,
+      targetProjectId: input.targetProjectId,
+    })),
   t3_thread_fork: (input) =>
     Effect.gen(function* () {
       const { threads, projection } = yield* readWritableThread(input.threadId);
@@ -128,6 +134,9 @@ export const layer = ThreadToolkit.toLayer({
           targetThreadId,
           sourcePoint: input.sourcePoint,
           ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.targetProjectId === undefined
+            ? {}
+            : { targetProjectId: input.targetProjectId }),
           createdBy: "agent",
           creationSource: "mcp",
         })

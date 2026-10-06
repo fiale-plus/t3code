@@ -2076,7 +2076,7 @@ function AutoSettleDaysInput({
 const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
   "legacy-plan-mode",
   "legacy-context-window-indicator",
-  "legacy-sidebar",
+  "sidebar-mode",
 ]);
 
 /**
@@ -2144,16 +2144,24 @@ function LegacyFeaturesSection() {
               }
             />
             <SettingsRow
-              {...searchableSetting("legacy-sidebar")}
-              description="Restore per-project thread trees instead of the default flat sidebar."
+              {...searchableSetting("sidebar-mode")}
+              description="Choose how projects and threads are organized in the sidebar."
               control={
-                <Switch
-                  checked={settings.legacySidebarEnabled}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ legacySidebarEnabled: Boolean(checked) })
-                  }
-                  aria-label="Sidebar (legacy)"
-                />
+                <div role="group" aria-label="Sidebar mode" className="flex gap-1">
+                  {(["default", "legacy", "chaotic"] as const).map((mode) => (
+                    <Button
+                      key={mode}
+                      type="button"
+                      size="xs"
+                      variant={settings.sidebarMode === mode ? "secondary" : "ghost"}
+                      aria-pressed={settings.sidebarMode === mode}
+                      onClick={() => updateSettings({ sidebarMode: mode })}
+                    >
+                      {mode[0]?.toUpperCase()}
+                      {mode.slice(1)}
+                    </Button>
+                  ))}
+                </div>
               }
             />
           </SettingsGroup>

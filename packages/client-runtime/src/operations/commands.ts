@@ -75,11 +75,17 @@ export interface CreateThreadInput extends CommandMetadata {
   readonly interactionMode: ProviderInteractionMode;
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  readonly executionWorkspaceRoot?: string | undefined;
 }
 
-export interface ThreadCommandInput extends CommandMetadata {
+export interface MoveThreadInput extends CommandMetadata {
   readonly threadId: ThreadId;
+  readonly targetProjectId: ProjectId;
 }
+
+export type ThreadCommandInput = CommandMetadata & {
+  readonly threadId: ThreadId;
+};
 
 export type DeleteThreadInput = ThreadCommandInput;
 export type ArchiveThreadInput = ThreadCommandInput;
@@ -150,6 +156,7 @@ interface StartThreadBootstrap {
     readonly interactionMode: ProviderInteractionMode;
     readonly branch: string | null;
     readonly worktreePath: string | null;
+    readonly executionWorkspaceRoot?: string | undefined;
     readonly createdAt: string;
   };
   readonly prepareWorktree?: {
@@ -216,6 +223,7 @@ export interface ForkThreadFromRunInput extends CommandMetadata {
   readonly targetThreadId: ThreadId;
   readonly runId: RunId;
   readonly title?: string;
+  readonly targetProjectId?: ProjectId;
 }
 
 export interface MergeThreadBackInput extends CommandMetadata {
@@ -406,6 +414,9 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
     interactionMode: input.interactionMode,
     branch: input.branch,
     worktreePath: input.worktreePath,
+    ...(input.executionWorkspaceRoot === undefined
+      ? {}
+      : { executionWorkspaceRoot: input.executionWorkspaceRoot }),
   });
 });
 
@@ -671,6 +682,9 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       threadId: input.threadId,
       ...(bootstrap === undefined ? { reuseExistingThread: true } : {}),
       projectId: thread.projectId,
+      ...(thread.executionWorkspaceRoot === undefined
+        ? {}
+        : { executionWorkspaceRoot: thread.executionWorkspaceRoot }),
       title: input.titleSeed ?? thread.title,
       generateTitle: input.titleSeed !== undefined,
       modelSelection: input.modelSelection ?? thread.modelSelection,
@@ -934,6 +948,17 @@ export const stopThreadSession = Effect.fn("EnvironmentCommands.stopThreadSessio
   return result;
 });
 
+export const moveThread = Effect.fn("EnvironmentCommands.moveThread")(function* (
+  input: MoveThreadInput,
+) {
+  return yield* dispatch({
+    type: "thread.project.move",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    targetProjectId: input.targetProjectId,
+  });
+});
+
 export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRun")(function* (
   input: ForkThreadFromRunInput,
 ) {
@@ -946,6 +971,7 @@ export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRu
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
     ...(input.title === undefined ? {} : { title: input.title }),
+    ...(input.targetProjectId === undefined ? {} : { targetProjectId: input.targetProjectId }),
   });
 });
 

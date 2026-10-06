@@ -33,10 +33,14 @@ export function useSelectedThreadGitState() {
   const selectedThreadBranchTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
-      cwd: selectedThreadProject?.workspaceRoot ?? null,
+      cwd: selectedThread?.executionWorkspaceRoot ?? selectedThreadProject?.workspaceRoot ?? null,
       query: null,
     }),
-    [selectedThread?.environmentId, selectedThreadProject?.workspaceRoot],
+    [
+      selectedThread?.environmentId,
+      selectedThread?.executionWorkspaceRoot,
+      selectedThreadProject?.workspaceRoot,
+    ],
   );
   const selectedThreadBranchState = useBranches(selectedThreadBranchTarget);
   const selectedThreadBranches = useMemo(

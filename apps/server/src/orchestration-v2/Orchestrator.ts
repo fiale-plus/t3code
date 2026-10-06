@@ -398,6 +398,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.active.reorder":
     case "thread.visit":
     case "thread.mark-unread":
+    case "thread.project.move":
+      return command.threadId;
     case "thread.metadata.update":
     case "thread.pull-request.link":
     case "thread.pull-request.unlink":
@@ -2161,6 +2163,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       interactionMode: command.interactionMode,
       branch: command.branch,
       worktreePath: command.worktreePath,
+      ...(command.executionWorkspaceRoot === undefined
+        ? {}
+        : { executionWorkspaceRoot: command.executionWorkspaceRoot }),
       activeProviderThreadId: null,
       lineage: {
         parentThreadId: null,
@@ -2337,6 +2342,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.pin.reorder"
           | "thread.active.reorder"
           | "thread.mark-unread"
+          | "thread.project.move"
           | "thread.metadata.update"
           | "thread.pull-request.link"
           | "thread.pull-request.unlink"
@@ -2726,8 +2732,41 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       markUnreadVisitedAt = DateTime.subtract(latestRunCompletedAt, { milliseconds: 1 });
     }
+    let executionWorkspaceRoot = thread.executionWorkspaceRoot;
+    if (command.type === "thread.project.move") {
+      const targetProject = yield* projects
+        .get(command.targetProjectId)
+        .pipe(Effect.mapError(mapDispatchError(command)));
+      if (Option.isNone(targetProject) || targetProject.value.deletedAt !== null) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Target project ${command.targetProjectId} does not exist.`,
+        });
+      }
+      if (executionWorkspaceRoot === undefined) {
+        const sourceProject = yield* projects
+          .get(thread.projectId)
+          .pipe(Effect.mapError(mapDispatchError(command)));
+        if (Option.isNone(sourceProject)) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Source project ${thread.projectId} does not exist.`,
+          });
+        }
+        executionWorkspaceRoot = sourceProject.value.workspaceRoot;
+      }
+    }
     const updatedThread: OrchestrationV2AppThread = (() => {
       switch (command.type) {
+        case "thread.project.move":
+          return {
+            ...thread,
+            projectId: command.targetProjectId,
+            executionWorkspaceRoot,
+            updatedAt: now,
+          };
         case "thread.archive":
           // An archived thread takes no wakes, so its watches end like a settled thread's.
           return {
@@ -3159,6 +3198,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.pin-reordered" as const;
         case "thread.active.reorder":
           return "thread.active-reordered" as const;
+        case "thread.project.move":
+          return "thread.project-moved" as const;
         case "thread.mark-unread":
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
@@ -3464,6 +3505,31 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: forkableSourceRunStatusError(sourceRun),
       });
     }
+    if (command.targetProjectId !== undefined) {
+      const targetProject = yield* projects
+        .get(command.targetProjectId)
+        .pipe(Effect.mapError(mapDispatchError(command)));
+      if (Option.isNone(targetProject) || targetProject.value.deletedAt !== null) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Target project ${command.targetProjectId} does not exist.`,
+        });
+      }
+    }
+    const sourceProject = yield* projects
+      .get(sourceProjection.thread.projectId)
+      .pipe(Effect.mapError(mapDispatchError(command)));
+    const sourceWorkspaceRoot =
+      sourceProjection.thread.executionWorkspaceRoot ??
+      Option.getOrUndefined(sourceProject)?.workspaceRoot;
+    if (sourceWorkspaceRoot === undefined) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Source project ${sourceProjection.thread.projectId} does not exist.`,
+      });
+    }
     const sourceProviderThread = providerThreadForRun(sourceProjection, sourceRun);
     const now = command.createdAt ?? (yield* DateTime.now);
     const emitEvent = emit(events, command);
@@ -3477,11 +3543,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const { targetThread, transfer } = yield* threadForkService
       .plan({
         sourceProjection,
+        sourceWorkspaceRoot,
         sourceRun,
         sourceProviderThread,
         canonicalSourcePoint: contextSourcePointForRun(sourceProjection, sourceRun),
         transferId,
         targetThreadId: command.targetThreadId,
+        ...(command.targetProjectId === undefined
+          ? {}
+          : { targetProjectId: command.targetProjectId }),
         ...(command.title === undefined ? {} : { title: command.title }),
         createdBy: command.createdBy,
         creationSource: command.creationSource,
@@ -9910,6 +9980,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           }),
         );
       }
+      case "thread.project.move":
       case "thread.archive":
       case "thread.unarchive":
       case "thread.settle":

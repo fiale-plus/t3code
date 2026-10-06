@@ -11,6 +11,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { TestClock } from "effect/testing";
@@ -120,6 +121,47 @@ function nativeThreadCreated(projectId: ProjectId, threadId: ThreadId) {
     payload,
   };
 }
+
+it.effect("deletes only one organizational project and retains its sibling's shared checkout", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "project-shared-root-" });
+    const marker = `${root}/keep.txt`;
+    yield* fs.writeFileString(marker, "shared checkout");
+    yield* Effect.gen(function* () {
+      const service = yield* ProjectService.make;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const firstId = ProjectId.make("project:shared:first");
+      const secondId = ProjectId.make("project:shared:second");
+      const firstThread = ThreadId.make("thread:shared:first");
+      const secondThread = ThreadId.make("thread:shared:second");
+      for (const projectId of [firstId, secondId]) {
+        yield* service.create({
+          commandId: CommandId.make(`create:${projectId}`),
+          projectId,
+          title: projectId,
+          workspaceRoot: root,
+        });
+      }
+      yield* eventSink.write({
+        events: [
+          nativeThreadCreated(firstId, firstThread),
+          nativeThreadCreated(secondId, secondThread),
+        ],
+      });
+      yield* service.delete({
+        commandId: CommandId.make("delete:shared:first"),
+        projectId: firstId,
+        force: true,
+      });
+      assert.isNotNull((yield* projections.getThreadProjection(firstThread)).thread.deletedAt);
+      assert.isNull((yield* projections.getThreadProjection(secondThread)).thread.deletedAt);
+      assert.isTrue(Option.isSome(yield* service.getById(secondId)));
+      assert.equal(yield* fs.readFileString(marker), "shared checkout");
+    }).pipe(Effect.provide(layerServices));
+  }).pipe(Effect.provide(layerDatabase)),
+);
 
 it.effect("retries a partial project deletion without repeating child events or cleanup", () =>
   Effect.gen(function* () {

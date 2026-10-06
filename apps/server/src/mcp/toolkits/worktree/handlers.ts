@@ -31,7 +31,10 @@ const handlers = {
         });
       const git = yield* GitWorkflow.GitWorkflowService;
       return yield* git
-        .listRefs({ ...refs, cwd: thread.worktreePath ?? project.value.workspaceRoot })
+        .listRefs({
+          ...refs,
+          cwd: thread.worktreePath ?? thread.executionWorkspaceRoot ?? project.value.workspaceRoot,
+        })
         .pipe(Effect.mapError(unavailable));
     }),
   t3_worktree_handoff: (input) =>

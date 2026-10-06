@@ -73,6 +73,19 @@ describe("V2 storage cleanup eligibility", () => {
     expect(storageCleanupThreadIdle(shell(), NOW_MS)).toBe(false);
   });
 
+  it("never treats a relocated root checkout as a disposable worktree", () => {
+    expect(
+      storageCleanupThreadIdle(
+        shell({
+          projectId: ProjectId.make("project:destination"),
+          executionWorkspaceRoot: "/work/source",
+          branch: "feature",
+        }),
+        NOW_MS,
+      ),
+    ).toBe(false);
+  });
+
   it.each(["running", "starting", "preparing", "waiting", "queued"] as const)(
     "retains a worktree while its thread is %s",
     (status) => {

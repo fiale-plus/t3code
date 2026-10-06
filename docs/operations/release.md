@@ -4,25 +4,34 @@
 
 This document covers the unified release workflow for stable and nightly desktop releases.
 
+## Fork release policy
+
+This fork targets `fiale-plus/t3code`. The local implementation is based on upstream
+commit `76d3c96fd5b89cca2c06aeaceaea16100c75084a`; upstream updates are deliberate
+maintenance changes, not automatic nightly tracking.
+
+The scheduled nightly trigger is disabled. Stable releases build an explicit `vX.Y.Z`
+tag, or the selected manual-dispatch commit with an explicit version. Manual preview
+and nightly channels remain opt-in tooling, not the default update stream. CLI download,
+installer, and desktop publish defaults point to this fork.
+
+No fork release has been published. Before enabling distribution, configure fork-owned
+signing, npm publishing, hosted-service credentials and endpoints described below.
+Upstream credentials and hosted channels must not be reused. Prefer a pinned stable
+tag for installation; do not promise signed artifacts until the release checks pass.
+
 ## What the workflow does
 
 - Workflow: `.github/workflows/release.yml`
 - Triggers:
-  - manual `workflow_dispatch` with `channel=stable`, the normal way to ship stable. Stable
-    and nightly dispatches must select `main`; preview may select any branch. The channel defaults
-    to preview so an omitted selection cannot publish a stable release.
-  - push tag matching `v*.*.*` for a stable release of an explicit commit
-  - scheduled nightly check every 30 minutes
-  - manual `workflow_dispatch` with `channel=nightly`
+  - manual `workflow_dispatch` with `channel=stable` and an explicit version, or a
+    pushed `v*.*.*` tag, ships the selected fork revision.
+  - manual preview and nightly dispatches are optional maintainer-only trains.
   - manual `workflow_dispatch` with `channel=preview`, the maintainers' test train. It exercises the whole release flow (build, sign, notarize, smoke, publish) for a commit that end users must never receive, which is how an unmerged branch or a risky change gets a real release run before it lands. It builds the triggering commit with nightly's versioning under the `preview` prerelease identifier (`0.0.41-preview.<date>.<run>`) and publishes a GitHub prerelease plus the npm packages under the `preview` dist-tag. Preview is not on the schedule, no default npm dist-tag points at it, its desktop builds carry no update feed, and no updater manifest (`latest*.yml`, `nightly*.yml`, blockmaps) is attached, so a stable or nightly install cannot be offered one. The only ways onto it are downloading the release by hand, `npx t3@preview`, `T3CODE_CHANNEL=preview` for the install scripts, or `t3 update --channel preview` from a terminal; each prints a warning, and the CLI asks for confirmation when the running build is not itself a preview. The release itself is named as a maintainer test build and its body is a warning rather than generated notes: a changelog of unmerged branch history is not a changelog, and nightly and stable notes are unaffected because each series resolves its previous tag within its own channel. The hosted web app, AUR, and Discord announcements are skipped. Keep it; it costs nothing when idle.
-- A manual stable release builds the commit of the latest published nightly, not `main` HEAD.
-  Nightly is the release candidate: verify the nightly, then promote it. Merges to `main` keep
-  landing while you verify and never leak into the stable build.
-  - The version defaults to the one the nightly previewed (`0.0.39-nightly.*` ships as `0.0.39`).
-    Pass the `version` input to override it, for example for a minor bump.
-  - The stable tag is created on the nightly's commit when the GitHub Release is published.
-  - Pushing a `vX.Y.Z` tag by hand still works and builds exactly the tagged commit. Use it when
-    the commit to ship is not the latest nightly, such as a cherry-picked fix on a release branch.
+- A stable release builds the selected dispatch commit or tagged commit.
+- The dispatch `version` input is required for stable; tags provide their own version.
+- Verify the pinned commit and artifact smoke checks before publishing. No workflow
+  selects the latest published nightly as the stable source.
 - Runs lint, typecheck, and tests alongside artifact builds. Publishing waits for every check.
 - Reads the shared production T3 Connect relay URL and Clerk client configuration before packaging clients.
 - Builds the platform-independent JS (server bundle, web client, Electron main) once in the `build_bundle` job and hands it to every platform job as the `js-bundle` artifact; the platform jobs only package it, so no runner rebuilds it.

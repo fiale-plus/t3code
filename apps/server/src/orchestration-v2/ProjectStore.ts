@@ -82,9 +82,10 @@ export class ProjectStoreV2 extends Context.Service<
     ) => Effect.Effect<Option.Option<ProjectRow>, ProjectStoreV2Error>;
     readonly list: (options?: {
       readonly projectIds?: ReadonlyArray<ProjectId>;
+      readonly workspaceRoot?: string;
       readonly includeDeleted?: boolean;
     }) => Effect.Effect<ReadonlyArray<ProjectRow>, ProjectStoreV2Error>;
-    /** Workspace roots match by exact string; callers normalize before asking. */
+    /** Exact normalized root lookup; ambiguous roots fail rather than select an owner. */
     readonly findActiveByWorkspaceRoot: (
       workspaceRoot: string,
     ) => Effect.Effect<Option.Option<ProjectRow>, ProjectStoreV2Error>;
@@ -202,6 +203,7 @@ export const make = Effect.gen(function* () {
   const list: ProjectStoreV2["Service"]["list"] = (options) =>
     selectRows({
       ...(options?.projectIds === undefined ? {} : { projectIds: options.projectIds }),
+      ...(options?.workspaceRoot === undefined ? {} : { workspaceRoot: options.workspaceRoot }),
       includeDeleted: options?.includeDeleted === true,
     }).pipe(mapError("list"));
 
@@ -209,7 +211,16 @@ export const make = Effect.gen(function* () {
     workspaceRoot,
   ) =>
     selectRows({ workspaceRoot, includeDeleted: false }).pipe(
-      Effect.map((rows) => Option.fromUndefinedOr(rows[0])),
+      Effect.flatMap((rows) =>
+        rows.length > 1
+          ? Effect.fail(
+              new ProjectStoreV2Error({
+                operation: "findActiveByWorkspaceRoot",
+                cause: "Multiple projects share this workspace; select a project by ID.",
+              }),
+            )
+          : Effect.succeed(Option.fromUndefinedOr(rows[0])),
+      ),
       mapError("findActiveByWorkspaceRoot"),
     );
 

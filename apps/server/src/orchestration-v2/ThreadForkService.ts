@@ -1,5 +1,6 @@
 import {
   ContextTransferId,
+  ProjectId,
   OrchestrationV2Actor,
   OrchestrationV2AppThread,
   OrchestrationV2ContextSourcePoint,
@@ -56,12 +57,14 @@ export function forkableSourceRunStatusError(
 export interface ThreadForkServiceV2Shape {
   readonly plan: (input: {
     readonly sourceProjection: Pick<OrchestrationV2ThreadProjection, "thread">;
+    readonly sourceWorkspaceRoot: string;
     readonly sourceRun: OrchestrationV2Run;
     readonly sourceProviderThread: OrchestrationV2ProviderThread | undefined;
     readonly canonicalSourcePoint: OrchestrationV2ContextSourcePoint;
     readonly transferId: ContextTransferId;
     readonly targetThreadId: ThreadId;
     readonly title?: string;
+    readonly targetProjectId?: ProjectId;
     readonly createdBy: OrchestrationV2Actor;
     readonly creationSource: OrchestrationV2CreationSource;
     readonly createdAt: DateTime.Utc;
@@ -91,6 +94,9 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           creationSource: input.creationSource,
           id: input.targetThreadId,
           title: input.title ?? `${input.sourceProjection.thread.title} fork`,
+          projectId: input.targetProjectId ?? input.sourceProjection.thread.projectId,
+          executionWorkspaceRoot:
+            input.sourceProjection.thread.executionWorkspaceRoot ?? input.sourceWorkspaceRoot,
           activeProviderThreadId: null,
           lineage: {
             parentThreadId: input.sourceProjection.thread.id,

@@ -53,6 +53,10 @@ export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_a
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
 
+export const SidebarMode = Schema.Literals(["default", "legacy", "chaotic"]);
+export type SidebarMode = typeof SidebarMode.Type;
+export const DEFAULT_SIDEBAR_MODE: SidebarMode = "default";
+
 export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 // Not exported: mobile was the last consumer of the value itself; the
@@ -455,11 +459,8 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   proactivePanelsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   showSkillsInSlashMenu: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // Legacy sidebar (the original per-project tree). Deliberately a fresh key
-  // (was `sidebarV2Enabled` + `sidebarV2ConfiguredByUser`): decoding drops the
-  // old keys, so everyone, including prior beta opt-outs, resets to the new
-  // default sidebar.
-  legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // sidebarMode supersedes the legacy boolean; old stored values are migrated by the client.
+  sidebarMode: SidebarMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_MODE))),
   // Beta: working and monitoring threads fold into a Working shelf and return
   // to the top of the inbox once they need the user. The inbox then orders by
   // time, so manual placement there is ignored (and kept) while it is on.
@@ -501,6 +502,30 @@ export const ClientSettingsSchema = Schema.Struct({
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
+
+/** Decode old stored sidebar choices before the new mode default is applied. */
+export const StoredClientSettingsSchema = Schema.Unknown.pipe(
+  Schema.decodeTo(
+    ClientSettingsSchema,
+    SchemaTransformation.transform<typeof ClientSettingsSchema.Encoded, unknown>({
+      decode: (raw) => {
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+          return raw as typeof ClientSettingsSchema.Encoded;
+        }
+        const { legacySidebarEnabled, ...settings } = raw as Record<string, unknown>;
+        return {
+          ...settings,
+          sidebarMode: Object.hasOwn(settings, "sidebarMode")
+            ? settings.sidebarMode
+            : legacySidebarEnabled === true
+              ? "legacy"
+              : DEFAULT_SIDEBAR_MODE,
+        } as typeof ClientSettingsSchema.Encoded;
+      },
+      encode: (settings) => settings,
+    }),
+  ),
+);
 
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
 
@@ -1819,7 +1844,7 @@ export const ClientSettingsPatch = Schema.Struct({
   followUpBehavior: Schema.optionalKey(Schema.Literals(["queue", "steer"])),
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
-  legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
+  sidebarMode: Schema.optionalKey(SidebarMode),
   sidebarWorkingShelfEnabled: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
